@@ -1,0 +1,725 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Recommendation, Search &amp; Retraining with Ray</title>
+<style>
+:root{ --bg:#0d1b2a; --bg2:#13263b; --fg:#e8eef5; --muted:#9fb3c8;
+       --accent:#4ea3ff; --accent2:#7bdcb5; --code-bg:#1b2b3a; --card:#17293d; }
+*{ box-sizing:border-box; margin:0; padding:0; }
+html,body{ background:#06101b; color:var(--fg);
+  font-family:'Segoe UI',Helvetica,Arial,sans-serif; }
+.slide{ width:1280px; height:720px; position:relative; overflow:hidden;
+  background:linear-gradient(135deg,var(--bg),var(--bg2));
+  padding:56px 64px; display:flex; flex-direction:column;
+  border-top:6px solid var(--accent); }
+.slide h2{ font-size:36px; color:#fff; margin-bottom:18px; line-height:1.15; }
+.slide h3{ font-size:20px; color:var(--accent2); margin:6px 0 8px; }
+.lead{ font-size:19px; color:var(--fg); margin-bottom:16px; line-height:1.4; }
+.note{ font-size:16px; color:var(--muted); margin-top:14px; line-height:1.4; }
+.takeaway{ font-size:18px; color:var(--fg); margin-top:16px; line-height:1.45;
+  background:rgba(78,163,255,.12); border-left:4px solid var(--accent);
+  padding:14px 18px; border-radius:6px; }
+ul{ margin-left:22px; } li{ font-size:18px; line-height:1.5; margin:6px 0; }
+li ul li{ font-size:16px; color:var(--muted); margin:2px 0; }
+code{ background:rgba(255,255,255,.08); padding:1px 6px; border-radius:4px;
+  font-family:'SF Mono',Consolas,'Liberation Mono',monospace;
+  font-size:.92em; color:var(--accent2); }
+.kw{ color:var(--accent); font-weight:600; }
+.accent{ color:var(--accent); }
+pre.code{ background:var(--code-bg); border:1px solid #24405a; border-radius:8px;
+  padding:16px 18px; overflow:auto; margin:6px 0; }
+pre.code code{ background:none; padding:0; color:#e8eef5; font-size:15px;
+  line-height:1.45; display:block; }
+pre.code.sm code{ font-size:13px; line-height:1.4; }
+pre.out{ background:#0a151f; border:1px dashed #2c4660; border-radius:8px;
+  padding:12px 16px; color:#86c5a8; font-family:'SF Mono',Consolas,monospace;
+  font-size:14px; line-height:1.4; margin:6px 0; white-space:pre; overflow:auto; }
+.cols{ display:flex; gap:28px; flex:1; min-height:0; }
+.col{ flex:1; min-width:0; }
+.grid2{ display:grid; grid-template-columns:1fr 1fr; gap:18px; margin-top:8px; }
+.card{ background:var(--card); border:1px solid #24405a; border-radius:10px;
+  padding:18px 20px; font-size:17px; color:var(--fg); line-height:1.4; }
+.card h3{ margin-top:0; }
+/* title slide */
+.title{ justify-content:center; border-top:6px solid var(--accent2); }
+.brand{ letter-spacing:.32em; color:var(--accent); font-weight:700;
+  font-size:18px; margin-bottom:24px; }
+.title h1{ font-size:58px; line-height:1.1; color:#fff; margin-bottom:22px; }
+.title .sub{ font-size:22px; color:var(--muted); max-width:880px; line-height:1.5; }
+/* flow + diagrams */
+.flow{ display:flex; align-items:center; justify-content:center; gap:10px;
+  margin:26px 0; }
+.flow-step{ background:var(--card); border:1px solid #2c4660; border-radius:10px;
+  padding:18px 14px; text-align:center; font-size:20px; color:#fff; min-width:150px; }
+.flow-step small{ display:block; color:var(--muted); font-size:13px; margin-top:8px;
+  font-weight:400; line-height:1.3; }
+.arrow{ color:var(--accent); font-size:30px; }
+.diagram{ display:flex; flex-direction:column; align-items:center; gap:8px;
+  margin-top:6px; }
+.dia-cap{ color:var(--accent); font-weight:700; font-size:16px; letter-spacing:.04em;
+  text-transform:uppercase; margin-bottom:12px; }
+.dia-note{ font-size:14px; color:var(--muted); line-height:1.45; margin-top:14px; }
+.node{ border-radius:8px; padding:12px 18px; text-align:center; font-size:16px;
+  color:#fff; }
+.node small{ color:var(--muted); font-size:13px; }
+.arrow-d{ color:var(--accent); font-size:14px; font-family:monospace; }
+.col-narrow{ flex:0 0 42%; }
+/* vertical pipeline (stacked steps) */
+.vpipe{ display:flex; flex-direction:column; gap:5px; }
+.vstep{ background:var(--card); border:1px solid #2c4660; border-radius:8px;
+  padding:9px 14px; font-size:15px; color:var(--fg); display:flex; align-items:center; gap:10px; }
+.vstep b{ color:#fff; } .vstep small{ color:var(--muted); font-size:13px; }
+.vstep .op{ color:var(--accent2); font-family:monospace; font-size:12px; margin-left:auto; }
+.vstep.read{ border-color:#3a587a; }
+.vstep.write{ border-color:#2e5b4b; }
+.vchev{ text-align:center; color:var(--accent); font-size:12px; line-height:.6; }
+.vnum{ background:var(--accent); color:#06101b; font-weight:700; border-radius:50%;
+  width:22px; height:22px; display:inline-flex; align-items:center; justify-content:center;
+  font-size:13px; flex:0 0 22px; }
+/* two-tower diagram */
+.tower-wrap{ display:flex; align-items:flex-end; justify-content:center; gap:26px;
+  margin-top:6px; }
+.tower{ display:flex; flex-direction:column; gap:6px; align-items:center; width:200px; }
+.tbox{ width:100%; text-align:center; border-radius:8px; padding:10px; font-size:14px;
+  color:#fff; }
+.tbox.in{ background:var(--card); border:1px dashed #3a587a; color:var(--muted); }
+.tbox.emb{ background:#1f3a57; border:1px solid var(--accent); }
+.tbox.norm{ background:#16344a; border:1px solid #2c4660; font-size:13px; color:var(--muted); }
+.tup{ color:var(--accent); font-size:18px; }
+.tower h4{ color:var(--accent2); font-size:15px; margin-bottom:2px; }
+.dot-op{ align-self:center; text-align:center; color:#fff; }
+.dot-op .big{ font-size:30px; color:var(--accent); }
+.dot-op small{ display:block; color:var(--muted); font-size:13px; max-width:150px; }
+/* serve deployment graph */
+.graph{ display:flex; align-items:center; justify-content:center; gap:6px; margin-top:8px; }
+.gcol{ display:flex; flex-direction:column; gap:12px; align-items:center; }
+.dep{ border-radius:10px; padding:12px 16px; text-align:center; font-size:15px; color:#fff;
+  min-width:150px; }
+.dep.ingress{ background:#1f3a57; border:1px solid var(--accent); }
+.dep.svc{ background:#1d3b32; border:1px solid var(--accent2); }
+.dep.db{ background:#33264a; border:1px solid #8a6fd0; }
+.dep small{ display:block; color:var(--muted); font-size:12px; margin-top:4px; }
+.garrow{ color:var(--accent); font-size:22px; }
+.client{ background:var(--card); border:1px solid #2c4660; border-radius:10px;
+  padding:12px 16px; font-size:14px; color:var(--muted); text-align:center; }
+/* mlops loop */
+.loop{ display:flex; align-items:center; justify-content:center; gap:8px; margin-top:10px; }
+.loopnode{ background:#1f3a57; border:1px solid var(--accent); border-radius:50px;
+  padding:14px 20px; text-align:center; font-size:15px; color:#fff; min-width:130px; }
+.loopnode small{ display:block; color:var(--muted); font-size:12px; margin-top:3px; }
+.loopnode.alt{ background:#1d3b32; border-color:var(--accent2); }
+.looparrow{ color:var(--accent); font-size:24px; }
+pre { line-height: 125%; }
+td.linenos .normal { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+span.linenos { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+td.linenos .special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+.code code .hll { background-color: #49483e }
+.code code { background: #272822; color: #f8f8f2 }
+.code code .c { color: #75715e } /* Comment */
+.code code .err { color: #960050; background-color: #1e0010 } /* Error */
+.code code .esc { color: #f8f8f2 } /* Escape */
+.code code .g { color: #f8f8f2 } /* Generic */
+.code code .k { color: #66d9ef } /* Keyword */
+.code code .l { color: #ae81ff } /* Literal */
+.code code .n { color: #f8f8f2 } /* Name */
+.code code .o { color: #f92672 } /* Operator */
+.code code .x { color: #f8f8f2 } /* Other */
+.code code .p { color: #f8f8f2 } /* Punctuation */
+.code code .ch { color: #75715e } /* Comment.Hashbang */
+.code code .cm { color: #75715e } /* Comment.Multiline */
+.code code .cp { color: #75715e } /* Comment.Preproc */
+.code code .cpf { color: #75715e } /* Comment.PreprocFile */
+.code code .c1 { color: #75715e } /* Comment.Single */
+.code code .cs { color: #75715e } /* Comment.Special */
+.code code .gd { color: #f92672 } /* Generic.Deleted */
+.code code .ge { color: #f8f8f2; font-style: italic } /* Generic.Emph */
+.code code .gr { color: #f8f8f2 } /* Generic.Error */
+.code code .gh { color: #f8f8f2 } /* Generic.Heading */
+.code code .gi { color: #a6e22e } /* Generic.Inserted */
+.code code .go { color: #66d9ef } /* Generic.Output */
+.code code .gp { color: #f92672; font-weight: bold } /* Generic.Prompt */
+.code code .gs { color: #f8f8f2; font-weight: bold } /* Generic.Strong */
+.code code .gu { color: #75715e } /* Generic.Subheading */
+.code code .gt { color: #f8f8f2 } /* Generic.Traceback */
+.code code .kc { color: #66d9ef } /* Keyword.Constant */
+.code code .kd { color: #66d9ef } /* Keyword.Declaration */
+.code code .kn { color: #f92672 } /* Keyword.Namespace */
+.code code .kp { color: #66d9ef } /* Keyword.Pseudo */
+.code code .kr { color: #66d9ef } /* Keyword.Reserved */
+.code code .kt { color: #66d9ef } /* Keyword.Type */
+.code code .ld { color: #e6db74 } /* Literal.Date */
+.code code .m { color: #ae81ff } /* Literal.Number */
+.code code .s { color: #e6db74 } /* Literal.String */
+.code code .na { color: #a6e22e } /* Name.Attribute */
+.code code .nb { color: #f8f8f2 } /* Name.Builtin */
+.code code .nc { color: #a6e22e } /* Name.Class */
+.code code .no { color: #66d9ef } /* Name.Constant */
+.code code .nd { color: #a6e22e } /* Name.Decorator */
+.code code .ni { color: #f8f8f2 } /* Name.Entity */
+.code code .ne { color: #a6e22e } /* Name.Exception */
+.code code .nf { color: #a6e22e } /* Name.Function */
+.code code .nl { color: #f8f8f2 } /* Name.Label */
+.code code .nn { color: #f8f8f2 } /* Name.Namespace */
+.code code .nx { color: #a6e22e } /* Name.Other */
+.code code .py { color: #f8f8f2 } /* Name.Property */
+.code code .nt { color: #f92672 } /* Name.Tag */
+.code code .nv { color: #f8f8f2 } /* Name.Variable */
+.code code .ow { color: #f92672 } /* Operator.Word */
+.code code .w { color: #f8f8f2 } /* Text.Whitespace */
+.code code .mb { color: #ae81ff } /* Literal.Number.Bin */
+.code code .mf { color: #ae81ff } /* Literal.Number.Float */
+.code code .mh { color: #ae81ff } /* Literal.Number.Hex */
+.code code .mi { color: #ae81ff } /* Literal.Number.Integer */
+.code code .mo { color: #ae81ff } /* Literal.Number.Oct */
+.code code .sa { color: #e6db74 } /* Literal.String.Affix */
+.code code .sb { color: #e6db74 } /* Literal.String.Backtick */
+.code code .sc { color: #e6db74 } /* Literal.String.Char */
+.code code .dl { color: #e6db74 } /* Literal.String.Delimiter */
+.code code .sd { color: #e6db74 } /* Literal.String.Doc */
+.code code .s2 { color: #e6db74 } /* Literal.String.Double */
+.code code .se { color: #ae81ff } /* Literal.String.Escape */
+.code code .sh { color: #e6db74 } /* Literal.String.Heredoc */
+.code code .si { color: #e6db74 } /* Literal.String.Interpol */
+.code code .sx { color: #e6db74 } /* Literal.String.Other */
+.code code .sr { color: #e6db74 } /* Literal.String.Regex */
+.code code .s1 { color: #e6db74 } /* Literal.String.Single */
+.code code .ss { color: #e6db74 } /* Literal.String.Symbol */
+.code code .bp { color: #f8f8f2 } /* Name.Builtin.Pseudo */
+.code code .fm { color: #a6e22e } /* Name.Function.Magic */
+.code code .vc { color: #f8f8f2 } /* Name.Variable.Class */
+.code code .vg { color: #f8f8f2 } /* Name.Variable.Global */
+.code code .vi { color: #f8f8f2 } /* Name.Variable.Instance */
+.code code .vm { color: #f8f8f2 } /* Name.Variable.Magic */
+.code code .il { color: #ae81ff } /* Literal.Number.Integer.Long */
+@media screen{
+  body{ display:flex; align-items:center; justify-content:center;
+        min-height:100vh; overflow:hidden; }
+  #deck{ width:100vw; height:100vh; display:flex; align-items:center;
+         justify-content:center; }
+  .slide{ display:none; transform-origin:center center;
+          box-shadow:0 20px 60px rgba(0,0,0,.6); border-radius:6px; }
+  .slide.active{ display:flex; }
+  #pg{ position:fixed; bottom:16px; right:22px; color:#6f8aa6; font-size:14px;
+       font-family:monospace; background:rgba(0,0,0,.4); padding:4px 10px;
+       border-radius:20px; }
+  #hint{ position:fixed; bottom:16px; left:22px; color:#456; font-size:13px; }
+}
+
+@page{ size:1280px 720px; margin:0; }
+@media print{
+  body{ background:#fff; }
+  #pg,#hint{ display:none; }
+  .slide{ display:flex !important; page-break-after:always; break-after:page;
+          box-shadow:none; border-radius:0; }
+}
+</style></head>
+<body>
+<div id="deck">
+
+<div class="slide title">
+  <div class="brand">RAY &nbsp;&bull;&nbsp; ANYSCALE &nbsp;&bull;&nbsp; PART 2</div>
+  <h1>Recommendation, Search<br><span class="accent">&amp; Retraining</span></h1>
+  <p class="sub">Continuing the eCommerce catalog: batch &amp; online inference
+     with Ray Data and Ray Serve &mdash; semantic search, a two-tower
+     recommender, and periodic model retraining with Ray Train.</p>
+</div>
+
+<div class="slide">
+  <h2>Where we are &mdash; and what's next</h2>
+  <p class="lead">Same eCommerce scenario &amp; data (product catalog +
+     description embeddings from Part 1). Now we put a model to work and keep it
+     fresh.</p>
+  <div class="flow">
+    <div class="flow-step">Batch<br>inference<small>recommendation<br>emails (Ray Data)</small></div>
+    <div class="arrow">&rarr;</div>
+    <div class="flow-step">Online<br>serving<small>reco + semantic<br>search (Ray Serve)</small></div>
+    <div class="arrow">&rarr;</div>
+    <div class="flow-step">Retrain<br>&amp; update<small>two-tower model<br>(Ray Train)</small></div>
+  </div>
+  <div class="dia-note" style="text-align:center;font-size:16px">Three production
+    use cases, one cluster, one programming model &mdash; tasks, actors, and
+    <code>map_batches</code>.</div>
+</div>
+
+<div class="slide">
+  <h2>The model: a two-tower recommender</h2>
+  <div class="cols">
+    <div class="col col-narrow"><pre class="code sm"><code><span class="k">class</span> <span class="nc">TwoTower</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">n_users</span><span class="p">,</span> <span class="n">n_items</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="mi">64</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">user_emb</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Embedding</span><span class="p">(</span><span class="n">n_users</span><span class="p">,</span> <span class="n">dim</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">item_emb</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Embedding</span><span class="p">(</span><span class="n">n_items</span><span class="p">,</span> <span class="n">dim</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">encode_users</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">uid</span><span class="p">):</span>
+        <span class="n">u</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">user_emb</span><span class="p">(</span><span class="n">uid</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">F</span><span class="o">.</span><span class="n">normalize</span><span class="p">(</span><span class="n">u</span><span class="p">,</span> <span class="n">dim</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">encode_items</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">iid</span><span class="p">):</span>
+        <span class="n">v</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">item_emb</span><span class="p">(</span><span class="n">iid</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">F</span><span class="o">.</span><span class="n">normalize</span><span class="p">(</span><span class="n">v</span><span class="p">,</span> <span class="n">dim</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">uid</span><span class="p">,</span> <span class="n">pos_iid</span><span class="p">):</span>
+        <span class="n">u</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">encode_users</span><span class="p">(</span><span class="n">uid</span><span class="p">)</span>      <span class="c1"># [B,D]</span>
+        <span class="n">v</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">encode_items</span><span class="p">(</span><span class="n">pos_iid</span><span class="p">)</span>  <span class="c1"># [B,D]</span>
+        <span class="k">return</span> <span class="n">u</span> <span class="o">@</span> <span class="n">v</span><span class="o">.</span><span class="n">t</span><span class="p">()</span>                <span class="c1"># [B,B]</span>
+</code></pre>
+    </div>
+    <div class="col">
+      <div class="tower-wrap">
+        <div class="tower">
+          <h4>User tower</h4>
+          <div class="tbox emb">user embedding</div>
+          <div class="tup">&uarr;</div>
+          <div class="tbox in">user id</div>
+        </div>
+        <div class="dot-op">
+          <div class="big">&middot;</div>
+          <div>dot product<br>&rarr; similarity score</div>
+          <small>in-batch negatives: diagonal of u&middot;v&#7488; are the
+             positives, off-diagonal are negatives</small>
+        </div>
+        <div class="tower">
+          <h4>Item tower</h4>
+          <div class="tbox emb">item embedding</div>
+          <div class="tup">&uarr;</div>
+          <div class="tbox in">item id</div>
+        </div>
+      </div>
+      <div class="dia-note">Each tower maps an id to a normalized vector;
+        recommendation = find items whose vectors are most similar to the user's.
+        Top-k by score gives the recommendations.</div>
+    </div>
+  </div>
+</div>
+
+<div class="slide">
+  <h2>Batch inference: recommendation emails</h2>
+  <p class="lead">Task: for every user, find products to recommend, write a
+     personalized email, and enqueue it &mdash; as one Ray Data pipeline of
+     composable steps.</p>
+  <div class="cols">
+    <div class="col">
+      <div class="vpipe">
+        <div class="vstep read"><span class="vnum">1</span><b>Read users</b><span class="op">read_json</span></div>
+        <div class="vchev">&#9660;</div>
+        <div class="vstep"><span class="vnum">2</span>User GUID &rarr; index<span class="op">map_batches</span></div>
+        <div class="vchev">&#9660;</div>
+        <div class="vstep"><span class="vnum">3</span>Infer recommendations<span class="op">map_batches</span></div>
+        <div class="vchev">&#9660;</div>
+        <div class="vstep"><span class="vnum">4</span>Look up item details<span class="op">map_batches</span></div>
+        <div class="vchev">&#9660;</div>
+        <div class="vstep"><span class="vnum">5</span>Generate email<span class="op">map</span></div>
+        <div class="vchev">&#9660;</div>
+        <div class="vstep write"><span class="vnum">6</span><b>Enqueue for sending</b><span class="op">map_batches</span></div>
+      </div>
+    </div>
+    <div class="col">
+      <p class="note" style="margin-top:0">Each step is an independent,
+        testable transform. Stateless steps use plain functions; steps that hold
+        state (the model, a queue client) use a class that Ray runs as an actor.</p>
+      <div class="dia-note"><b>Why a pipeline?</b> Datasets are lazy &amp;
+        streaming &mdash; build and test step-by-step on a small sample, then run
+        the whole thing at scale without changing the code.</div>
+      <div class="takeaway" style="font-size:16px">Real systems read users &amp;
+        products from databases. We front that with a <b>named Ray actor</b> as a
+        database facade &mdash; looked up by name anywhere in the pipeline.</div>
+    </div>
+  </div>
+</div>
+
+<div class="slide">
+  <h2>Reading data &mdash; and a real gotcha</h2>
+  <p class="lead">Ray Data reads many formats, but defaults can surprise you.
+     Troubleshoot by comparing against PyArrow / Pandas.</p>
+<pre class="code"><code><span class="c1"># JSON lines read returns NO rows... no error, no data!</span>
+<span class="n">ds</span> <span class="o">=</span> <span class="n">ray</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">read_json</span><span class="p">(</span><span class="s1">&#39;.../users.ndjson&#39;</span><span class="p">,</span> <span class="n">lines</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">ds</span><span class="o">.</span><span class="n">materialize</span><span class="p">()</span>                       <span class="c1"># -&gt; 0 rows</span>
+
+<span class="c1"># PyArrow &amp; Pandas read it fine -&gt; data &amp; libs are OK</span>
+<span class="c1"># Cause: Ray Data filters to *.json by default, skipping .ndjson</span>
+<span class="n">ds</span> <span class="o">=</span> <span class="n">ray</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">read_json</span><span class="p">(</span><span class="s1">&#39;.../users.ndjson&#39;</span><span class="p">,</span> <span class="n">lines</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+                        <span class="n">file_extensions</span><span class="o">=</span><span class="p">[</span><span class="s1">&#39;.ndjson&#39;</span><span class="p">])</span>   <span class="c1"># fixed</span>
+</code></pre>
+  <p class="note"><code>materialize()</code> caches the dataset in the object
+     store &mdash; ideal for inspecting and iterating on small data while
+     developing. Lesson: when results look wrong, isolate Ray Data from your
+     data and other libraries.</p>
+</div>
+
+<div class="slide">
+  <h2>A named actor as a service facade</h2>
+  <div class="cols">
+    <div class="col">
+      <h3>Define &amp; name the actor</h3><pre class="code"><code><span class="nd">@ray</span><span class="o">.</span><span class="n">remote</span>
+<span class="k">class</span> <span class="nc">DatabaseFacade</span><span class="p">:</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">users</span><span class="p">,</span> <span class="n">products</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">users</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_json</span><span class="p">(</span><span class="n">users</span><span class="p">,</span> <span class="n">lines</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">products</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_parquet</span><span class="p">(</span><span class="n">products</span><span class="p">)</span>
+    <span class="k">def</span> <span class="nf">users_for_ids</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ids</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">users</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">users</span><span class="p">[</span><span class="s1">&#39;id&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">isin</span><span class="p">(</span><span class="n">ids</span><span class="p">)]</span>
+    <span class="k">def</span> <span class="nf">products_for_indices</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">idxs</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">products</span><span class="o">.</span><span class="n">iloc</span><span class="p">[</span><span class="n">idxs</span><span class="p">]</span>
+
+<span class="c1"># create once, register a name</span>
+<span class="n">DatabaseFacade</span><span class="o">.</span><span class="n">options</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;database&quot;</span><span class="p">)</span> \
+    <span class="o">.</span><span class="n">remote</span><span class="p">(</span><span class="n">users_path</span><span class="p">,</span> <span class="n">products_path</span><span class="p">)</span>
+</code></pre>
+    </div>
+    <div class="col">
+      <h3>Look it up anywhere &mdash; even in a stateless step</h3><pre class="code"><code><span class="k">def</span> <span class="nf">get_user_indices</span><span class="p">(</span><span class="n">batch</span><span class="p">):</span>
+    <span class="n">db</span> <span class="o">=</span> <span class="n">ray</span><span class="o">.</span><span class="n">get_actor</span><span class="p">(</span><span class="s2">&quot;database&quot;</span><span class="p">)</span>     <span class="c1"># by name</span>
+    <span class="n">ref</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">users_for_ids</span><span class="o">.</span><span class="n">remote</span><span class="p">(</span><span class="n">batch</span><span class="p">[</span><span class="s1">&#39;id&#39;</span><span class="p">])</span>
+    <span class="n">batch</span><span class="p">[</span><span class="s1">&#39;user_index&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">ray</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">ref</span><span class="p">)</span><span class="o">.</span><span class="n">index</span><span class="o">.</span><span class="n">values</span>
+    <span class="k">return</span> <span class="n">batch</span>
+
+<span class="n">ds</span><span class="o">.</span><span class="n">map_batches</span><span class="p">(</span><span class="n">get_user_indices</span><span class="p">)</span>
+</code></pre>
+      <p class="note">The actor holds state (loaded tables); pipeline functions
+        stay stateless and just call it. Remote calls return
+        <code>ObjectRef</code>s; <code>ray.get</code> fetches the value.</p>
+    </div>
+  </div>
+</div>
+
+<div class="slide">
+  <h2>The model step: a stateful <code>map_batches</code> actor</h2>
+  <p class="lead">The recommender loads the model once in <code>__init__</code>;
+     <code>__call__</code> scores a batch of users and attaches top-k items.
+     No <code>@ray.remote</code> needed &mdash; Ray makes it an actor.</p>
+<pre class="code"><code><span class="k">class</span> <span class="nc">Recommend</span><span class="p">:</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">model_location</span><span class="p">,</span> <span class="n">num_recommendations</span><span class="p">,</span> <span class="n">num_users</span><span class="p">,</span> <span class="n">num_items</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">model</span> <span class="o">=</span> <span class="n">TwoTower</span><span class="p">(</span><span class="n">num_users</span><span class="p">,</span> <span class="n">num_items</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">load_state_dict</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">model_location</span><span class="p">,</span> <span class="n">weights_only</span><span class="o">=</span><span class="kc">True</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">eval</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">num_recommendations</span> <span class="o">=</span> <span class="n">num_recommendations</span>
+
+    <span class="k">def</span> <span class="fm">__call__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">batch</span><span class="p">,</span> <span class="n">column</span><span class="p">):</span>                 <span class="c1"># column = &quot;user_index&quot;</span>
+        <span class="n">batch</span><span class="p">[</span><span class="s1">&#39;recommended_items&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">recommend_for_users</span><span class="p">(</span><span class="n">batch</span><span class="p">[</span><span class="n">column</span><span class="p">])</span>
+        <span class="k">return</span> <span class="n">batch</span>
+
+<span class="n">ds</span><span class="o">.</span><span class="n">map_batches</span><span class="p">(</span><span class="n">get_user_indices</span><span class="p">)</span> \
+  <span class="o">.</span><span class="n">map_batches</span><span class="p">(</span><span class="n">Recommend</span><span class="p">,</span> <span class="n">fn_constructor_args</span><span class="o">=</span><span class="p">[</span><span class="n">model_path</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">1000</span><span class="p">,</span> <span class="mi">1000</span><span class="p">],</span>
+               <span class="n">fn_args</span><span class="o">=</span><span class="p">[</span><span class="s1">&#39;user_index&#39;</span><span class="p">])</span>
+</code></pre>
+</div>
+
+<div class="slide">
+  <h2>Finish the pipeline &mdash; emails, queue &amp; blocks</h2>
+  <div class="cols">
+    <div class="col"><pre class="code sm"><code><span class="c1"># per-row email text -&gt; use map()</span>
+<span class="k">def</span> <span class="nf">generate_email_for_user</span><span class="p">(</span><span class="n">user</span><span class="p">):</span>
+    <span class="n">user</span><span class="p">[</span><span class="s1">&#39;reco_email&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">render</span><span class="p">(</span><span class="n">user</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">user</span>
+
+<span class="c1"># stateful queue adapter -&gt; map_batches (an actor)</span>
+<span class="k">class</span> <span class="nc">EmailSendingQueue</span><span class="p">:</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">service_info</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">queue</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;service&#39;</span><span class="p">:</span> <span class="n">service_info</span><span class="p">,</span> <span class="s1">&#39;out&#39;</span><span class="p">:</span> <span class="p">[]}</span>
+    <span class="k">def</span> <span class="fm">__call__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">batch</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">queue</span><span class="p">[</span><span class="s1">&#39;out&#39;</span><span class="p">]</span> <span class="o">+=</span> <span class="nb">list</span><span class="p">(</span><span class="n">batch</span><span class="p">[</span><span class="s1">&#39;reco_email&#39;</span><span class="p">])</span>
+        <span class="n">batch</span><span class="p">[</span><span class="s1">&#39;queued&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="kc">True</span><span class="p">]</span><span class="o">*</span><span class="nb">len</span><span class="p">(</span><span class="n">batch</span><span class="p">[</span><span class="s1">&#39;reco_email&#39;</span><span class="p">])</span>
+        <span class="k">return</span> <span class="n">batch</span>
+
+<span class="c1"># the full pipeline, end to end:</span>
+<span class="n">ds</span><span class="o">.</span><span class="n">map_batches</span><span class="p">(</span><span class="n">get_user_indices</span><span class="p">)</span> \
+  <span class="o">.</span><span class="n">map_batches</span><span class="p">(</span><span class="n">Recommend</span><span class="p">,</span> <span class="n">fn_args</span><span class="o">=</span><span class="p">[</span><span class="s1">&#39;user_index&#39;</span><span class="p">],</span>
+               <span class="n">fn_constructor_args</span><span class="o">=</span><span class="p">[</span><span class="n">path</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">1000</span><span class="p">,</span> <span class="mi">1000</span><span class="p">])</span> \
+  <span class="o">.</span><span class="n">map_batches</span><span class="p">(</span><span class="n">get_recommended_items_details</span><span class="p">)</span> \
+  <span class="o">.</span><span class="n">map</span><span class="p">(</span><span class="n">generate_email_for_user</span><span class="p">)</span> \
+  <span class="o">.</span><span class="n">map_batches</span><span class="p">(</span><span class="n">EmailSendingQueue</span><span class="p">,</span> <span class="n">batch_size</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span>
+               <span class="n">fn_constructor_args</span><span class="o">=</span><span class="p">[</span><span class="s1">&#39;sender:bulk&#39;</span><span class="p">])</span> \
+  <span class="o">.</span><span class="n">count</span><span class="p">()</span>
+</code></pre>
+    </div>
+    <div class="col">
+      <h3>Gotcha: blocks vs. batches</h3>
+      <p class="note" style="margin-top:0">Asking for a small
+        <code>take_batch(2)</code> still processed all 1000 records &mdash;
+        because the tiny dataset is a <b>single block</b>, and Ray Data must
+        process a whole block at a time.</p>
+      <div class="takeaway" style="font-size:16px"><code>repartition(n)</code>
+        creates more blocks, so a small take touches fewer records. This matters
+        a lot when each inference is slow/expensive (e.g. an LLM) during
+        iterative development.</div>
+      <p class="note"><b>map</b> = per row &nbsp;|&nbsp; <b>map_batches</b> =
+        per batch + reusable actor state. Side effects (sending mail) become a
+        column marking what was queued.</p>
+    </div>
+  </div>
+</div>
+
+<div class="slide">
+  <h2>Online serving with Ray Serve</h2>
+  <p class="lead">Start simple: one <b>deployment</b> handling request I/O
+     (ingress) and recommendation logic. Decorate a class, bind it, run it.</p>
+<pre class="code"><code><span class="nd">@serve</span><span class="o">.</span><span class="n">deployment</span>
+<span class="k">class</span> <span class="nc">IngressAndRecommender</span><span class="p">:</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">base_model_path</span><span class="p">,</span> <span class="n">num_recos</span><span class="p">,</span> <span class="n">num_users</span><span class="p">,</span> <span class="n">num_products</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">db</span> <span class="o">=</span> <span class="n">ray</span><span class="o">.</span><span class="n">get_actor</span><span class="p">(</span><span class="s2">&quot;database&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">recommender</span> <span class="o">=</span> <span class="n">Recommend</span><span class="p">(</span><span class="n">base_model_path</span><span class="p">,</span> <span class="n">num_recos</span><span class="p">,</span> <span class="n">num_users</span><span class="p">,</span> <span class="n">num_products</span><span class="p">)</span>
+
+    <span class="k">async</span> <span class="k">def</span> <span class="fm">__call__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">:</span> <span class="n">Request</span><span class="p">):</span>           <span class="c1"># HTTP entrypoint</span>
+        <span class="n">user</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="k">await</span> <span class="n">request</span><span class="o">.</span><span class="n">json</span><span class="p">())</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">recommend</span><span class="p">([</span><span class="n">user</span><span class="p">[</span><span class="s1">&#39;id&#39;</span><span class="p">]])[[</span><span class="s1">&#39;item_id&#39;</span><span class="p">,</span><span class="s1">&#39;name&#39;</span><span class="p">,</span><span class="s1">&#39;desc&#39;</span><span class="p">,</span><span class="s1">&#39;price&#39;</span><span class="p">]]</span><span class="o">.</span><span class="n">to_json</span><span class="p">()</span>
+
+<span class="n">handle</span> <span class="o">=</span> <span class="n">serve</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">IngressAndRecommender</span><span class="o">.</span><span class="n">bind</span><span class="p">(</span><span class="n">base_model_path</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">1000</span><span class="p">,</span> <span class="mi">1000</span><span class="p">))</span>
+<span class="n">requests</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="s2">&quot;http://localhost:8000/&quot;</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="s1">&#39;{&quot;id&quot;: &quot;7034dd99-...&quot;}&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">json</span><span class="p">()</span>
+</code></pre>
+  <p class="note">A Serve deployment is a managed, scalable group of replicas.
+     Next we split responsibilities into separate, composable deployments.</p>
+</div>
+
+<div class="slide">
+  <h2>Composing deployments (separation of concerns)</h2>
+  <div class="cols">
+    <div class="col col-narrow"><pre class="code"><code><span class="nd">@serve</span><span class="o">.</span><span class="n">deployment</span>
+<span class="k">class</span> <span class="nc">Ingress</span><span class="p">:</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">recommender</span><span class="p">,</span> <span class="n">search</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">recommender</span> <span class="o">=</span> <span class="n">recommender</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">search</span> <span class="o">=</span> <span class="n">search</span>
+    <span class="k">async</span> <span class="k">def</span> <span class="fm">__call__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">):</span>
+        <span class="n">u</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="k">await</span> <span class="n">request</span><span class="o">.</span><span class="n">json</span><span class="p">())</span>
+        <span class="c1"># await (not ray.get) a deployment handle</span>
+        <span class="n">recos</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">recommender</span><span class="o">.</span><span class="n">recommend</span> \
+                          <span class="o">.</span><span class="n">remote</span><span class="p">([</span><span class="n">u</span><span class="p">[</span><span class="s1">&#39;id&#39;</span><span class="p">]])</span>
+        <span class="o">...</span>
+
+<span class="c1"># bind in dependency order</span>
+<span class="n">db</span>  <span class="o">=</span> <span class="n">DatabaseFacade</span><span class="o">.</span><span class="n">bind</span><span class="p">(</span><span class="n">users</span><span class="p">,</span> <span class="n">products</span><span class="p">)</span>
+<span class="n">rec</span> <span class="o">=</span> <span class="n">Recommender</span><span class="o">.</span><span class="n">bind</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">1000</span><span class="p">,</span> <span class="mi">1000</span><span class="p">,</span> <span class="n">db</span><span class="p">)</span>
+<span class="n">ing</span> <span class="o">=</span> <span class="n">Ingress</span><span class="o">.</span><span class="n">bind</span><span class="p">(</span><span class="n">rec</span><span class="p">,</span> <span class="n">search</span><span class="p">)</span>
+<span class="n">serve</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">ing</span><span class="p">)</span>
+</code></pre>
+    </div>
+    <div class="col">
+      <div class="dia-cap">Deployment graph</div>
+      <div class="graph">
+        <div class="client">HTTP<br>client</div>
+        <div class="garrow">&rarr;</div>
+        <div class="gcol">
+          <div class="dep ingress">Ingress<small>routing &amp; I/O</small></div>
+        </div>
+        <div class="garrow">&rarr;</div>
+        <div class="gcol">
+          <div class="dep svc">Recommender<small>two-tower</small></div>
+          <div class="dep svc">SemanticSearch<small>embeddings</small></div>
+        </div>
+        <div class="garrow">&rarr;</div>
+        <div class="dep db">DatabaseFacade<small>users &amp; products</small></div>
+      </div>
+      <div class="dia-note">Each component scales, upgrades, and recovers
+        independently. With handles you <b>await</b> results (async web pattern)
+        rather than <code>ray.get</code>. Making the DB a deployment lets Serve
+        restart and autoscale it too.</div>
+    </div>
+  </div>
+</div>
+
+<div class="slide">
+  <h2>Semantic search as a deployment</h2>
+  <p class="lead">Reuse the Part-1 description embeddings: encode the query,
+     rank by vector similarity, then rerank by name string-distance.</p>
+  <div class="cols">
+    <div class="col"><pre class="code sm"><code><span class="nd">@serve</span><span class="o">.</span><span class="n">deployment</span>
+<span class="k">class</span> <span class="nc">SemanticSearch</span><span class="p">:</span>
+    <span class="k">async</span> <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">model</span><span class="p">,</span> <span class="n">db</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">model</span> <span class="o">=</span> <span class="n">SentenceTransformer</span><span class="p">(</span><span class="n">model</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">db</span> <span class="o">=</span> <span class="n">db</span>
+        <span class="n">all_p</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">db</span><span class="o">.</span><span class="n">all_products</span><span class="o">.</span><span class="n">remote</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">embs</span> <span class="o">=</span> <span class="n">all_p</span><span class="p">[</span><span class="s1">&#39;desc_emb&#39;</span><span class="p">]</span>
+
+    <span class="k">async</span> <span class="k">def</span> <span class="nf">search</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">query</span><span class="p">,</span> <span class="n">matches</span><span class="p">):</span>
+        <span class="n">sims</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">similarity</span><span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="n">query</span><span class="p">),</span> <span class="bp">self</span><span class="o">.</span><span class="n">embs</span><span class="p">)</span>
+        <span class="n">top</span> <span class="o">=</span> <span class="n">sims</span><span class="o">.</span><span class="n">flatten</span><span class="p">()</span><span class="o">.</span><span class="n">topk</span><span class="p">(</span><span class="mi">50</span><span class="p">)</span><span class="o">.</span><span class="n">indices</span>
+        <span class="n">products</span> <span class="o">=</span> <span class="k">await</span> \
+            <span class="bp">self</span><span class="o">.</span><span class="n">db</span><span class="o">.</span><span class="n">products_for_indices</span><span class="o">.</span><span class="n">remote</span><span class="p">(</span><span class="n">top</span><span class="p">)</span>
+        <span class="c1"># rerank by name similarity</span>
+        <span class="n">best</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="n">lcsstr</span><span class="p">(</span><span class="n">query</span><span class="p">,</span> <span class="n">n</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">n</span> <span class="ow">in</span> <span class="n">products</span><span class="p">[</span><span class="s1">&#39;name&#39;</span><span class="p">]])</span><span class="o">.</span><span class="n">topk</span><span class="p">(</span><span class="n">matches</span><span class="p">)</span><span class="o">.</span><span class="n">indices</span>
+        <span class="k">return</span> <span class="n">products</span><span class="o">.</span><span class="n">iloc</span><span class="p">[</span><span class="n">best</span><span class="p">]</span>
+</code></pre>
+    </div>
+    <div class="col">
+      <h3>Ingress routes on the request</h3><pre class="code sm"><code><span class="k">async</span> <span class="k">def</span> <span class="fm">__call__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">):</span>
+    <span class="n">user</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="k">await</span> <span class="n">request</span><span class="o">.</span><span class="n">json</span><span class="p">())</span>
+    <span class="n">result</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;recommendations&quot;</span><span class="p">:</span>
+        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">recommender</span><span class="o">.</span><span class="n">recommend</span><span class="o">.</span><span class="n">remote</span><span class="p">(</span>
+            <span class="p">[</span><span class="n">user</span><span class="p">[</span><span class="s1">&#39;id&#39;</span><span class="p">]])}</span>
+    <span class="k">if</span> <span class="s2">&quot;query&quot;</span> <span class="ow">in</span> <span class="n">user</span><span class="p">:</span>           <span class="c1"># optional search</span>
+        <span class="n">result</span><span class="p">[</span><span class="s2">&quot;search_results&quot;</span><span class="p">]</span> <span class="o">=</span> \
+            <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">search</span><span class="o">.</span><span class="n">search</span><span class="o">.</span><span class="n">remote</span><span class="p">(</span>
+                <span class="n">user</span><span class="p">[</span><span class="s1">&#39;query&#39;</span><span class="p">],</span> <span class="mi">5</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">result</span><span class="p">)</span>
+</code></pre>
+      <p class="note">One endpoint returns recommendations always, and adds
+        search results when the request includes a <code>query</code>.</p>
+    </div>
+  </div>
+</div>
+
+<div class="slide">
+  <h2>Production deploy: config &amp; CLI</h2>
+  <p class="lead">Generate a config from code, then tune replicas, resources,
+     and autoscaling per deployment &mdash; no code changes.</p>
+  <div class="cols">
+    <div class="col"><pre class="code"><code><span class="c1"># scaffold a config from the bound app</span><span class="w"></span>
+<span class="l l-Scalar l-Scalar-Plain">serve build search_and_recommend:bound_ingress \</span><span class="w"></span>
+<span class="w">      </span><span class="l l-Scalar l-Scalar-Plain">-o serve_config.yaml</span><span class="w"></span>
+
+<span class="l l-Scalar l-Scalar-Plain"># deploy / update from the CLI</span><span class="w"></span>
+<span class="l l-Scalar l-Scalar-Plain">serve deploy serve_updated.yaml</span><span class="w"></span>
+<span class="l l-Scalar l-Scalar-Plain">serve shutdown -y</span><span class="w"></span>
+</code></pre><pre class="code"><code><span class="nt">runtime_env</span><span class="p">:</span><span class="w"></span>
+<span class="w">  </span><span class="nt">working_dir</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;https://.../recommend.zip&quot;</span><span class="w"></span>
+<span class="nt">deployments</span><span class="p">:</span><span class="w"></span>
+<span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">DatabaseFacade</span><span class="w"></span>
+<span class="w">  </span><span class="nt">num_replicas</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">4</span><span class="w"></span>
+<span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Recommender</span><span class="w"></span>
+<span class="w">  </span><span class="nt">num_replicas</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span><span class="w"></span>
+<span class="w">  </span><span class="nt">ray_actor_options</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">num_cpus</span><span class="p">:</span><span class="w"> </span><span class="nv">1</span><span class="p p-Indicator">,</span><span class="nt"> num_gpus</span><span class="p">:</span><span class="w"> </span><span class="nv">0.5</span><span class="p p-Indicator">}</span><span class="w"></span>
+<span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SemanticSearch</span><span class="w"></span>
+<span class="w">  </span><span class="nt">autoscaling_config</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">min_replicas</span><span class="p">:</span><span class="w"> </span><span class="nv">2</span><span class="p p-Indicator">,</span><span class="nt"> max_replicas</span><span class="p">:</span><span class="w"> </span><span class="nv">4</span><span class="p p-Indicator">}</span><span class="w"></span>
+<span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Ingress</span><span class="w"></span>
+<span class="w">  </span><span class="nt">autoscaling_config</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">min_replicas</span><span class="p">:</span><span class="w"> </span><span class="nv">2</span><span class="p p-Indicator">,</span><span class="nt"> max_replicas</span><span class="p">:</span><span class="w"> </span><span class="nv">4</span><span class="p p-Indicator">}</span><span class="w"></span>
+</code></pre>
+    </div>
+    <div class="col">
+      <h3>Per-deployment control</h3>
+      <ul>
+        <li><b>num_replicas</b> &mdash; fixed parallelism for a component.</li>
+        <li><b>autoscaling_config</b> &mdash; min/max replicas that scale with
+            load.</li>
+        <li><b>ray_actor_options</b> &mdash; CPUs and <b>fractional GPUs</b>
+            (e.g. <code>num_gpus: 0.5</code> packs two replicas per GPU).</li>
+        <li>Health-check &amp; graceful-shutdown timeouts per deployment.</li>
+      </ul>
+      <p class="note">Watch out for runtime details: working dir, imported
+        modules, env vars, and name scoping &mdash; Python wasn't designed for a
+        distributed runtime, so be explicit.</p>
+    </div>
+  </div>
+</div>
+
+<div class="slide">
+  <h2>Retraining: PyTorch &rarr; Ray Train (DDP)</h2>
+  <p class="lead">Keep the model fresh with recent interactions. Porting a plain
+     training loop to distributed data-parallel is a small change.</p>
+  <div class="cols">
+    <div class="col">
+      <h3>The port</h3><pre class="code"><code><span class="k">def</span> <span class="nf">train_loop_ray</span><span class="p">(</span><span class="n">config</span><span class="p">):</span>
+    <span class="n">model</span> <span class="o">=</span> <span class="n">TwoTower</span><span class="p">(</span><span class="n">config</span><span class="p">[</span><span class="s1">&#39;num_users&#39;</span><span class="p">],</span>
+                     <span class="n">config</span><span class="p">[</span><span class="s1">&#39;num_items&#39;</span><span class="p">],</span> <span class="n">config</span><span class="p">[</span><span class="s1">&#39;dim&#39;</span><span class="p">])</span>
+    <span class="c1"># device detection, data movement, DDP wrap:</span>
+    <span class="n">model</span> <span class="o">=</span> <span class="n">ray</span><span class="o">.</span><span class="n">train</span><span class="o">.</span><span class="n">torch</span><span class="o">.</span><span class="n">prepare_model</span><span class="p">(</span><span class="n">model</span><span class="p">)</span>
+    <span class="n">opt</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">optim</span><span class="o">.</span><span class="n">Adam</span><span class="p">(</span><span class="n">model</span><span class="o">.</span><span class="n">parameters</span><span class="p">(),</span> <span class="n">lr</span><span class="o">=</span><span class="mf">1e-3</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">step</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">200</span><span class="p">):</span>
+        <span class="o">...</span>                       <span class="c1"># same training math</span>
+</code></pre>
+    </div>
+    <div class="col">
+      <h3>Orchestrate with TorchTrainer</h3><pre class="code"><code><span class="n">trainer</span> <span class="o">=</span> <span class="n">TorchTrainer</span><span class="p">(</span>
+    <span class="n">train_loop_ray</span><span class="p">,</span>
+    <span class="n">scaling_config</span><span class="o">=</span><span class="n">ScalingConfig</span><span class="p">(</span>
+        <span class="n">num_workers</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">use_gpu</span><span class="o">=</span><span class="kc">True</span><span class="p">),</span>
+    <span class="n">run_config</span><span class="o">=</span><span class="n">RunConfig</span><span class="p">(</span>
+        <span class="n">storage_path</span><span class="o">=</span><span class="s1">&#39;/mnt/cluster_storage&#39;</span><span class="p">),</span>
+    <span class="n">train_loop_config</span><span class="o">=</span><span class="p">{</span><span class="s1">&#39;num_users&#39;</span><span class="p">:</span> <span class="mi">1000</span><span class="p">,</span>
+        <span class="s1">&#39;num_items&#39;</span><span class="p">:</span> <span class="mi">1000</span><span class="p">,</span> <span class="s1">&#39;dim&#39;</span><span class="p">:</span> <span class="mi">64</span><span class="p">},</span>
+<span class="p">)</span>
+<span class="n">result</span> <span class="o">=</span> <span class="n">trainer</span><span class="o">.</span><span class="n">fit</span><span class="p">()</span>
+</code></pre>
+      <p class="note"><code>prepare_model</code> handles device placement and
+        the <code>DDP</code> wrapping for you. <code>ScalingConfig</code> sets
+        workers/GPUs; a shared <code>storage_path</code> holds checkpoints.</p>
+    </div>
+  </div>
+</div>
+
+<div class="slide">
+  <h2>Feed training from a Ray Data pipeline</h2>
+  <p class="lead">Add config + checkpoints, then stream sharded training batches
+     from a Ray Data pipeline into each worker.</p>
+  <div class="cols">
+    <div class="col"><pre class="code sm"><code><span class="k">def</span> <span class="nf">train_loop_ray_data</span><span class="p">(</span><span class="n">config</span><span class="p">):</span>
+    <span class="n">model</span> <span class="o">=</span> <span class="n">ray</span><span class="o">.</span><span class="n">train</span><span class="o">.</span><span class="n">torch</span><span class="o">.</span><span class="n">prepare_model</span><span class="p">(</span>
+        <span class="n">TwoTower</span><span class="p">(</span><span class="n">config</span><span class="p">[</span><span class="s1">&#39;num_users&#39;</span><span class="p">],</span>
+                 <span class="n">config</span><span class="p">[</span><span class="s1">&#39;num_items&#39;</span><span class="p">],</span> <span class="n">config</span><span class="p">[</span><span class="s1">&#39;dim&#39;</span><span class="p">]))</span>
+    <span class="n">opt</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">optim</span><span class="o">.</span><span class="n">Adam</span><span class="p">(</span><span class="n">model</span><span class="o">.</span><span class="n">parameters</span><span class="p">(),</span> <span class="n">lr</span><span class="o">=</span><span class="mf">1e-3</span><span class="p">)</span>
+
+    <span class="c1"># this worker&#39;s slice of the stream:</span>
+    <span class="n">shard</span> <span class="o">=</span> <span class="n">get_dataset_shard</span><span class="p">(</span><span class="s2">&quot;train&quot;</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">batch</span> <span class="ow">in</span> <span class="n">shard</span><span class="o">.</span><span class="n">iter_torch_batches</span><span class="p">(</span><span class="n">batch_size</span><span class="o">=</span><span class="mi">1000</span><span class="p">):</span>
+        <span class="n">loss</span> <span class="o">=</span> <span class="n">step</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">batch</span><span class="p">)</span>
+        <span class="c1"># rank-0 saves; report metrics + checkpoint</span>
+        <span class="k">if</span> <span class="n">get_context</span><span class="p">()</span><span class="o">.</span><span class="n">get_world_rank</span><span class="p">()</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">torch</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">model</span><span class="o">.</span><span class="n">module</span><span class="o">.</span><span class="n">state_dict</span><span class="p">(),</span> <span class="n">path</span><span class="p">)</span>
+            <span class="n">ckpt</span> <span class="o">=</span> <span class="n">Checkpoint</span><span class="o">.</span><span class="n">from_directory</span><span class="p">(</span><span class="n">d</span><span class="p">)</span>
+        <span class="n">ray</span><span class="o">.</span><span class="n">train</span><span class="o">.</span><span class="n">report</span><span class="p">({</span><span class="s1">&#39;loss&#39;</span><span class="p">:</span> <span class="n">loss</span><span class="o">.</span><span class="n">item</span><span class="p">()},</span>
+                         <span class="n">checkpoint</span><span class="o">=</span><span class="n">ckpt</span><span class="p">)</span>
+</code></pre>
+    </div>
+    <div class="col"><pre class="code sm"><code><span class="n">trainer</span> <span class="o">=</span> <span class="n">TorchTrainer</span><span class="p">(</span>
+    <span class="n">train_loop_ray_data</span><span class="p">,</span>
+    <span class="n">scaling_config</span><span class="o">=</span><span class="n">ScalingConfig</span><span class="p">(</span>
+        <span class="n">num_workers</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">use_gpu</span><span class="o">=</span><span class="kc">True</span><span class="p">),</span>
+    <span class="n">train_loop_config</span><span class="o">=</span><span class="p">{</span><span class="o">...</span><span class="p">},</span>
+    <span class="c1"># supply the data pipeline:</span>
+    <span class="n">datasets</span><span class="o">=</span><span class="p">{</span><span class="s1">&#39;train&#39;</span><span class="p">:</span> <span class="n">training_pipeline</span><span class="p">},</span>
+<span class="p">)</span>
+<span class="n">result</span> <span class="o">=</span> <span class="n">trainer</span><span class="o">.</span><span class="n">fit</span><span class="p">()</span>
+
+<span class="c1"># multi-epoch streams (re-reads) data each epoch.</span>
+<span class="c1"># to reuse it, cache across the object store:</span>
+<span class="n">cached</span> <span class="o">=</span> <span class="n">training_pipeline</span><span class="o">.</span><span class="n">materialize</span><span class="p">()</span>
+</code></pre>
+      <p class="note">Ray Data shards data per worker and prefetches batches;
+        Ray schedules data-prep and training on different hardware.
+        <b>materialize()</b> caches when re-streaming each epoch isn't worth it.</p>
+    </div>
+  </div>
+</div>
+
+<div class="slide">
+  <h2>The continuous loop &mdash; train, serve, repeat</h2>
+  <p class="lead">Wrap the training program in a Ray / Anyscale <b>Job</b>,
+     scheduled to consume new interaction data and publish fresh checkpoints to
+     a known location that Serve loads.</p>
+  <div class="loop">
+    <div class="loopnode">Collect<small>user interactions</small></div>
+    <div class="looparrow">&rarr;</div>
+    <div class="loopnode">Ray Data<small>featurize</small></div>
+    <div class="looparrow">&rarr;</div>
+    <div class="loopnode">Ray Train<small>retrain / finetune</small></div>
+    <div class="looparrow">&rarr;</div>
+    <div class="loopnode">Checkpoint<small>new model.pt</small></div>
+    <div class="looparrow">&rarr;</div>
+    <div class="loopnode alt">Ray Serve<small>reco + search</small></div>
+  </div>
+  <p class="takeaway"><b>Takeaway:</b> batch inference, online serving, and
+     retraining are all the same toolkit &mdash; Ray Data pipelines, actors, and
+     Serve deployments on one cluster &mdash; so a recommender can be served and
+     continuously updated with minimal, composable code.</p>
+</div>
+
+</div>
+<div id="pg"></div>
+<div id="hint">&larr; &rarr; or click to navigate</div>
+<script>
+const slides=[...document.querySelectorAll('.slide')];
+let i=0; const pg=document.getElementById('pg');
+function fit(){ const k=Math.min(innerWidth/1280,innerHeight/720);
+  slides.forEach(el=>el.style.transform='scale('+k+')'); }
+function show(n){ i=Math.max(0,Math.min(slides.length-1,n));
+  slides.forEach((el,j)=>el.classList.toggle('active',j===i));
+  pg.textContent=(i+1)+' / '+slides.length; fit(); }
+addEventListener('keydown',e=>{
+  if(['ArrowRight','ArrowDown','PageDown',' '].includes(e.key)) show(i+1);
+  else if(['ArrowLeft','ArrowUp','PageUp'].includes(e.key)) show(i-1);
+  else if(e.key==='Home') show(0); else if(e.key==='End') show(slides.length-1);
+});
+addEventListener('resize',fit);
+addEventListener('click',e=>{ if(e.target.closest('a'))return; show(i+1); });
+show(0);
+</script>
+</body></html>

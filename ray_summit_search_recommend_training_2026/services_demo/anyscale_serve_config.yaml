@@ -1,0 +1,37 @@
+name: search_recommend_c26_61
+
+image_uri: anyscale/image/c26:5
+compute_config: head-2a10g-small:2
+working_dir : "https://anyscale-materials.s3.us-west-2.amazonaws.com/recommend_full_cached_model.zip"
+cloud: education-us-west-2
+query_auth_token_enabled: True
+
+applications:
+- name: search_recommend
+  route_prefix: /
+  import_path: search_and_recommend:bound_ingress
+  deployments:
+  - name: DatabaseFacade
+    num_replicas: 2
+    graceful_shutdown_wait_loop_s: 2.0
+    graceful_shutdown_timeout_s: 20.0
+    health_check_period_s: 10.0
+    health_check_timeout_s: 30.0
+        
+  - name: Recommender
+    num_replicas: 2
+    max_ongoing_requests: 100
+    ray_actor_options:
+      num_cpus: 1
+      num_gpus: 0.5
+      
+  - name: SemanticSearch
+    autoscaling_config:
+      min_replicas: 2
+      max_replicas: 4
+
+  - name: Ingress
+    autoscaling_config:
+      min_replicas: 2
+      max_replicas: 4
+    
