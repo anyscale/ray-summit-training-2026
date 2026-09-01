@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scaling AI with Ray &amp; Ray Data</title>
+<style>
+:root{ --bg:#0d1b2a; --bg2:#13263b; --fg:#e8eef5; --muted:#9fb3c8;
+       --accent:#4ea3ff; --accent2:#7bdcb5; --code-bg:#1b2b3a; --card:#17293d; }
+*{ box-sizing:border-box; margin:0; padding:0; }
+html,body{ background:#06101b; color:var(--fg);
+  font-family:'Segoe UI',Helvetica,Arial,sans-serif; }
+.slide{ width:1280px; height:720px; position:relative; overflow:hidden;
+  background:linear-gradient(135deg,var(--bg),var(--bg2));
+  padding:56px 64px; display:flex; flex-direction:column;
+  border-top:6px solid var(--accent); }
+.slide h2{ font-size:36px; color:#fff; margin-bottom:18px; line-height:1.15; }
+.slide h3{ font-size:20px; color:var(--accent2); margin:6px 0 8px; }
+.lead{ font-size:19px; color:var(--fg); margin-bottom:16px; line-height:1.4; }
+.note{ font-size:16px; color:var(--muted); margin-top:14px; line-height:1.4; }
+.takeaway{ font-size:18px; color:var(--fg); margin-top:16px; line-height:1.45;
+  background:rgba(78,163,255,.12); border-left:4px solid var(--accent);
+  padding:14px 18px; border-radius:6px; }
+ul{ margin-left:22px; } li{ font-size:18px; line-height:1.5; margin:6px 0; }
+li ul li{ font-size:16px; color:var(--muted); margin:2px 0; }
+code{ background:rgba(255,255,255,.08); padding:1px 6px; border-radius:4px;
+  font-family:'SF Mono',Consolas,'Liberation Mono',monospace;
+  font-size:.92em; color:var(--accent2); }
+.kw{ color:var(--accent); font-weight:600; }
+.accent{ color:var(--accent); }
+pre.code{ background:var(--code-bg); border:1px solid #24405a; border-radius:8px;
+  padding:16px 18px; overflow:auto; margin:6px 0; }
+pre.code code{ background:none; padding:0; color:#e8eef5; font-size:15px;
+  line-height:1.45; display:block; }
+pre.out{ background:#0a151f; border:1px dashed #2c4660; border-radius:8px;
+  padding:12px 16px; color:#86c5a8; font-family:'SF Mono',Consolas,monospace;
+  font-size:14px; line-height:1.4; margin:6px 0; white-space:pre; overflow:auto; }
+.cols{ display:flex; gap:28px; flex:1; min-height:0; }
+.col{ flex:1; min-width:0; }
+.grid2{ display:grid; grid-template-columns:1fr 1fr; gap:18px; margin-top:8px; }
+.card{ background:var(--card); border:1px solid #24405a; border-radius:10px;
+  padding:18px 20px; font-size:17px; color:var(--fg); line-height:1.4; }
+.card h3{ margin-top:0; }
+/* title slide */
+.title{ justify-content:center; border-top:6px solid var(--accent2); }
+.brand{ letter-spacing:.32em; color:var(--accent); font-weight:700;
+  font-size:18px; margin-bottom:24px; }
+.title h1{ font-size:62px; line-height:1.1; color:#fff; margin-bottom:22px; }
+.title .sub{ font-size:22px; color:var(--muted); max-width:850px; line-height:1.5; }
+.title .footnote{ position:absolute; bottom:48px; left:64px; color:var(--muted);
+  font-size:15px; letter-spacing:.04em; }
+/* flow + diagrams */
+.flow{ display:flex; align-items:center; justify-content:center; gap:10px;
+  margin:26px 0; }
+.flow-step{ background:var(--card); border:1px solid #2c4660; border-radius:10px;
+  padding:18px 14px; text-align:center; font-size:20px; color:#fff; min-width:150px; }
+.flow-step small{ display:block; color:var(--muted); font-size:13px; margin-top:8px;
+  font-weight:400; line-height:1.3; }
+.arrow{ color:var(--accent); font-size:30px; }
+.diagram{ display:flex; flex-direction:column; align-items:center; gap:8px;
+  margin-top:6px; }
+.stack-row{ display:flex; gap:8px; }
+.stack-row span{ background:var(--accent); color:#06101b; font-weight:700;
+  padding:10px 14px; border-radius:6px; font-size:15px; }
+.stack-label{ color:var(--muted); font-size:14px; margin-bottom:4px; }
+.stack-core{ background:#1f3a57; border:1px solid var(--accent); color:#fff;
+  padding:16px 40px; border-radius:8px; text-align:center; font-size:20px;
+  font-weight:600; }
+.stack-core small{ font-weight:400; color:var(--muted); font-size:13px; }
+.stack-hw{ background:var(--card); border:1px solid #2c4660; color:var(--muted);
+  padding:10px 30px; border-radius:8px; font-size:15px; }
+.node{ border-radius:8px; padding:12px 18px; text-align:center; font-size:16px;
+  color:#fff; width:230px; }
+.node.fn{ background:var(--card); border:1px solid #2c4660; }
+.node.task{ background:#1f3a57; border:1px solid var(--accent); }
+.node.ref{ background:#1d3b32; border:1px solid var(--accent2); }
+.node small{ color:var(--muted); font-size:13px; }
+.arrow-d{ color:var(--accent); font-size:14px; font-family:monospace; }
+.col-narrow{ flex:0 0 42%; }
+/* shared diagram captions / notes */
+.dia-cap{ color:var(--accent); font-weight:700; font-size:16px; letter-spacing:.04em;
+  text-transform:uppercase; margin-bottom:12px; }
+.dia-note{ font-size:14px; color:var(--muted); line-height:1.45; margin-top:14px; }
+/* cluster diagram (slide 2) */
+.cluster{ display:flex; gap:14px; align-items:stretch; }
+.cnode{ flex:1; background:var(--card); border:1px solid #2c4660; border-radius:10px;
+  padding:12px 12px 14px; display:flex; flex-direction:column; gap:7px; }
+.cnode.head{ border-color:var(--accent); }
+.cnode h4{ color:#fff; font-size:16px; text-align:center; margin-bottom:4px; }
+.cnode .gpu{ background:var(--accent2); color:#06101b; font-size:11px; font-weight:700;
+  padding:1px 7px; border-radius:10px; vertical-align:middle; }
+.part{ background:#0f2236; border:1px solid #24405a; border-radius:6px; padding:7px 9px;
+  font-size:13px; color:var(--fg); line-height:1.3; }
+.part small{ color:var(--muted); font-size:11px; }
+.part.gcs{ border-color:var(--accent); color:#cfe6ff; }
+.part.os{ border-color:#2e5b4b; color:var(--accent2); }
+.part.actor{ border-color:#5a4a8a; color:#cfc2ff; }
+.part.driver{ border-color:#7a6030; color:#ffe2b0; }
+/* anyscale autoscaling (slide 3) */
+.grid2-tall .card{ min-height:118px; }
+.cp-box{ background:#1f3a57; border:1px solid var(--accent); border-radius:10px;
+  text-align:center; color:#fff; font-weight:600; font-size:18px; padding:14px; }
+.cp-box small{ display:block; color:var(--muted); font-weight:400; font-size:13px;
+  margin-top:6px; }
+.cp-arrow{ text-align:center; color:var(--accent); font-family:monospace; font-size:13px;
+  margin:8px 0; }
+.scale{ display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.scol{ flex:1; background:var(--card); border:1px solid #2c4660; border-radius:10px;
+  padding:12px 8px; text-align:center; }
+.snodes{ display:flex; flex-wrap:wrap; gap:5px; justify-content:center; align-items:center;
+  min-height:46px; }
+.dot{ width:14px; height:14px; border-radius:3px; background:#2c4660; display:inline-block; }
+.dot.on{ background:var(--accent); }
+.dot.dead{ background:#7a2f2f; border:1px solid #c0504d; }
+.slabel{ color:var(--muted); font-size:12px; margin-top:8px; line-height:1.3; }
+.slabel b{ color:var(--fg); }
+/* end-to-end workflow (slide 4) */
+.e2e{ display:flex; align-items:stretch; justify-content:center; gap:8px; margin:18px 0 0; }
+.e2e-art,.e2e-lib{ flex:1; border-radius:10px; padding:16px 10px; text-align:center;
+  font-size:18px; color:#fff; display:flex; flex-direction:column; justify-content:center; }
+.e2e-art{ background:var(--card); border:1px dashed #3a587a; color:var(--muted);
+  font-size:15px; }
+.e2e-art small{ font-size:12px; }
+.e2e-lib{ background:#1f3a57; border:1px solid var(--accent); }
+.e2e-lib.serve{ background:#1d3b32; border-color:var(--accent2); }
+.e2e-lib small,.e2e-art small{ display:block; color:var(--muted); font-weight:400;
+  font-size:12px; margin-top:6px; line-height:1.3; }
+.e2e-arrow{ display:flex; align-items:center; color:var(--accent); font-size:26px; }
+.e2e-artrow{ display:flex; justify-content:space-around; margin:10px 0 0; }
+.e2e-artrow span{ flex:1; text-align:center; color:var(--accent2); font-size:13px;
+  font-style:italic; }
+.e2e-artrow span.end{ color:var(--accent); }
+.e2e-foot{ margin-top:16px; background:rgba(78,163,255,.10);
+  border:1px solid #24405a; border-radius:8px; padding:12px 16px; text-align:center;
+  color:var(--fg); font-size:15px; }
+.e2e-foot .sub2{ display:block; color:var(--muted); font-size:13px; margin-top:4px; }
+pre { line-height: 125%; }
+td.linenos .normal { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+span.linenos { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+td.linenos .special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+.code code .hll { background-color: #49483e }
+.code code { background: #272822; color: #f8f8f2 }
+.code code .c { color: #75715e } /* Comment */
+.code code .err { color: #960050; background-color: #1e0010 } /* Error */
+.code code .esc { color: #f8f8f2 } /* Escape */
+.code code .g { color: #f8f8f2 } /* Generic */
+.code code .k { color: #66d9ef } /* Keyword */
+.code code .l { color: #ae81ff } /* Literal */
+.code code .n { color: #f8f8f2 } /* Name */
+.code code .o { color: #f92672 } /* Operator */
+.code code .x { color: #f8f8f2 } /* Other */
+.code code .p { color: #f8f8f2 } /* Punctuation */
+.code code .ch { color: #75715e } /* Comment.Hashbang */
+.code code .cm { color: #75715e } /* Comment.Multiline */
+.code code .cp { color: #75715e } /* Comment.Preproc */
+.code code .cpf { color: #75715e } /* Comment.PreprocFile */
+.code code .c1 { color: #75715e } /* Comment.Single */
+.code code .cs { color: #75715e } /* Comment.Special */
+.code code .gd { color: #f92672 } /* Generic.Deleted */
+.code code .ge { color: #f8f8f2; font-style: italic } /* Generic.Emph */
+.code code .gr { color: #f8f8f2 } /* Generic.Error */
+.code code .gh { color: #f8f8f2 } /* Generic.Heading */
+.code code .gi { color: #a6e22e } /* Generic.Inserted */
+.code code .go { color: #66d9ef } /* Generic.Output */
+.code code .gp { color: #f92672; font-weight: bold } /* Generic.Prompt */
+.code code .gs { color: #f8f8f2; font-weight: bold } /* Generic.Strong */
+.code code .gu { color: #75715e } /* Generic.Subheading */
+.code code .gt { color: #f8f8f2 } /* Generic.Traceback */
+.code code .kc { color: #66d9ef } /* Keyword.Constant */
+.code code .kd { color: #66d9ef } /* Keyword.Declaration */
+.code code .kn { color: #f92672 } /* Keyword.Namespace */
+.code code .kp { color: #66d9ef } /* Keyword.Pseudo */
+.code code .kr { color: #66d9ef } /* Keyword.Reserved */
+.code code .kt { color: #66d9ef } /* Keyword.Type */
+.code code .ld { color: #e6db74 } /* Literal.Date */
+.code code .m { color: #ae81ff } /* Literal.Number */
+.code code .s { color: #e6db74 } /* Literal.String */
+.code code .na { color: #a6e22e } /* Name.Attribute */
+.code code .nb { color: #f8f8f2 } /* Name.Builtin */
+.code code .nc { color: #a6e22e } /* Name.Class */
+.code code .no { color: #66d9ef } /* Name.Constant */
+.code code .nd { color: #a6e22e } /* Name.Decorator */
+.code code .ni { color: #f8f8f2 } /* Name.Entity */
+.code code .ne { color: #a6e22e } /* Name.Exception */
+.code code .nf { color: #a6e22e } /* Name.Function */
+.code code .nl { color: #f8f8f2 } /* Name.Label */
+.code code .nn { color: #f8f8f2 } /* Name.Namespace */
+.code code .nx { color: #a6e22e } /* Name.Other */
+.code code .py { color: #f8f8f2 } /* Name.Property */
+.code code .nt { color: #f92672 } /* Name.Tag */
+.code code .nv { color: #f8f8f2 } /* Name.Variable */
+.code code .ow { color: #f92672 } /* Operator.Word */
+.code code .w { color: #f8f8f2 } /* Text.Whitespace */
+.code code .mb { color: #ae81ff } /* Literal.Number.Bin */
+.code code .mf { color: #ae81ff } /* Literal.Number.Float */
+.code code .mh { color: #ae81ff } /* Literal.Number.Hex */
+.code code .mi { color: #ae81ff } /* Literal.Number.Integer */
+.code code .mo { color: #ae81ff } /* Literal.Number.Oct */
+.code code .sa { color: #e6db74 } /* Literal.String.Affix */
+.code code .sb { color: #e6db74 } /* Literal.String.Backtick */
+.code code .sc { color: #e6db74 } /* Literal.String.Char */
+.code code .dl { color: #e6db74 } /* Literal.String.Delimiter */
+.code code .sd { color: #e6db74 } /* Literal.String.Doc */
+.code code .s2 { color: #e6db74 } /* Literal.String.Double */
+.code code .se { color: #ae81ff } /* Literal.String.Escape */
+.code code .sh { color: #e6db74 } /* Literal.String.Heredoc */
+.code code .si { color: #e6db74 } /* Literal.String.Interpol */
+.code code .sx { color: #e6db74 } /* Literal.String.Other */
+.code code .sr { color: #e6db74 } /* Literal.String.Regex */
+.code code .s1 { color: #e6db74 } /* Literal.String.Single */
+.code code .ss { color: #e6db74 } /* Literal.String.Symbol */
+.code code .bp { color: #f8f8f2 } /* Name.Builtin.Pseudo */
+.code code .fm { color: #a6e22e } /* Name.Function.Magic */
+.code code .vc { color: #f8f8f2 } /* Name.Variable.Class */
+.code code .vg { color: #f8f8f2 } /* Name.Variable.Global */
+.code code .vi { color: #f8f8f2 } /* Name.Variable.Instance */
+.code code .vm { color: #f8f8f2 } /* Name.Variable.Magic */
+.code code .il { color: #ae81ff } /* Literal.Number.Integer.Long */
+@media screen{
+  body{ display:flex; align-items:center; justify-content:center;
+        min-height:100vh; overflow:hidden; }
+  #deck{ width:100vw; height:100vh; display:flex; align-items:center;
+         justify-content:center; }
+  .slide{ display:none; transform-origin:center center; box-shadow:0 20px 60px rgba(0,0,0,.6);
+          border-radius:6px; }
+  .slide.active{ display:flex; }
+  #pg{ position:fixed; bottom:16px; right:22px; color:#6f8aa6; font-size:14px;
+       font-family:monospace; background:rgba(0,0,0,.4); padding:4px 10px;
+       border-radius:20px; }
+  #hint{ position:fixed; bottom:16px; left:22px; color:#456; font-size:13px; }
+}
+
+@page{ size:1280px 720px; margin:0; }
+@media print{
+  body{ background:#fff; }
+  #pg,#hint{ display:none; }
+  .slide{ display:flex !important; page-break-after:always; break-after:page;
+          box-shadow:none; border-radius:0; }
+}
+</style></head>
+<body>
+<div id="deck">
+
+<div class="slide title">
+  <div class="brand">RAY &nbsp;&bull;&nbsp; ANYSCALE</div>
+  <h1>Scaling AI with Ray<br><span class="accent">&amp; Ray Data Pipelines</span></h1>
+  <p class="sub">From a single Python function to distributed training, tuning,
+     batch inference, and online serving &mdash; plus production data pipelines.</p>
+</div>
+
+<div class="slide">
+  <h2>What is Ray?</h2>
+  <div class="cols">
+    <div class="col col-narrow">
+      <ul>
+        <li>OSS framework for <b>high-performance, resilient, scale-out</b>
+            computation on heterogeneous hardware.</li>
+        <li>Distributed scheduler for stateless functions
+            (<span class="kw">tasks</span>) and long-running stateful processes
+            (<span class="kw">actors</span>).</li>
+        <li>Key features:
+          <ul>
+            <li>Dependency tracking &mdash; <b>task graphs</b></li>
+            <li>Data-movement &amp; resource aware</li>
+            <li>Mixed resources: GPUs, fractional &amp; custom</li>
+          </ul>
+        </li>
+        <li>Infra: distributed <b>object store</b>, fault tolerance via GCS.</li>
+        <li>Easy, Python-first APIs and patterns.</li>
+      </ul>
+      <div class="diagram" style="margin-top:18px">
+        <div class="stack-row libs">
+          <span>Data</span><span>Train</span><span>Tune</span><span>Serve</span>
+        </div>
+        <div class="stack-label">Ray AI Libraries</div>
+        <div class="stack-core">Ray Core<br><small>tasks &middot; actors &middot; objects</small></div>
+        <div class="stack-hw">CPUs &nbsp;&middot;&nbsp; GPUs &nbsp;&middot;&nbsp; many nodes</div>
+      </div>
+    </div>
+    <div class="col">
+      <div class="dia-cap">Anatomy of a Ray cluster</div>
+      <div class="cluster">
+        <div class="cnode head">
+          <h4>Head node</h4>
+          <div class="part driver">Driver (your script)</div>
+          <div class="part gcs">GCS &mdash; global control store<br><small>metadata &middot; fault tolerance</small></div>
+          <div class="part">Raylet: scheduler</div>
+          <div class="part os">Object store (shared memory)</div>
+        </div>
+        <div class="cnode">
+          <h4>Worker node</h4>
+          <div class="part">Worker &middot; Worker</div>
+          <div class="part actor">Actor (stateful)</div>
+          <div class="part">Raylet: scheduler</div>
+          <div class="part os">Object store</div>
+        </div>
+        <div class="cnode">
+          <h4>Worker node &nbsp;<span class="gpu">GPU</span></h4>
+          <div class="part">Worker &middot; Worker</div>
+          <div class="part actor">Actor (model)</div>
+          <div class="part">Raylet: scheduler</div>
+          <div class="part os">Object store</div>
+        </div>
+      </div>
+      <div class="dia-note">The distributed <b>object store</b> spans all nodes &mdash;
+        large objects are shared by reference (zero-copy), not copied per task.
+        The head node's <b>GCS</b> tracks the whole cluster and enables recovery.</div>
+    </div>
+  </div>
+</div>
+
+<div class="slide">
+  <h2>Anyscale: production-ready Ray from day one</h2>
+  <div class="cols">
+    <div class="col">
+      <div class="grid2 grid2-tall">
+        <div class="card"><h3>Developer central</h3>
+            Multi-node-backed IDE; advanced observability per Ray library.</div>
+        <div class="card"><h3>Optimized runtime</h3>
+            Faster performance and higher GPU utilization vs. OSS.</div>
+        <div class="card"><h3>Cluster controller</h3>
+            Proactive unhealthy-node replacement; 0&ndash;100 node
+            ~60-second cold starts.</div>
+        <div class="card"><h3>Expertise</h3>
+            Training, 24/7 support, and professional services.</div>
+      </div>
+    </div>
+    <div class="col">
+      <div class="dia-cap">Managed control plane &amp; autoscaling</div>
+      <div class="cp-box">Anyscale control plane
+        <small>scheduling &middot; health checks &middot; observability &middot; storage scopes</small></div>
+      <div class="cp-arrow">manages &amp; autoscales &darr;</div>
+      <div class="scale">
+        <div class="scol">
+          <div class="snodes"><span class="dot on"></span></div>
+          <div class="slabel">idle<br><b>0 nodes</b></div>
+        </div>
+        <div class="arrow">&rarr;</div>
+        <div class="scol">
+          <div class="snodes">
+            <span class="dot on"></span><span class="dot on"></span><span class="dot on"></span>
+            <span class="dot on"></span><span class="dot on"></span><span class="dot on"></span>
+          </div>
+          <div class="slabel">burst load<br><b>0&rarr;100 in ~60s</b></div>
+        </div>
+        <div class="arrow">&rarr;</div>
+        <div class="scol">
+          <div class="snodes">
+            <span class="dot on"></span><span class="dot dead"></span><span class="dot on"></span>
+          </div>
+          <div class="slabel">node fails &rarr;<br><b>auto-replaced</b></div>
+        </div>
+      </div>
+      <div class="dia-note">The controller adds/removes nodes with demand and
+        swaps unhealthy nodes automatically &mdash; you write Ray code; Anyscale
+        runs and heals the cluster.</div>
+    </div>
+  </div>
+</div>
+
+<div class="slide">
+  <h2>The Ray AI Libraries &mdash; an end-to-end ML workflow</h2>
+  <p class="lead">High-level, Python-native APIs for large-scale ML, all built on
+     Ray Core &mdash; inheriting its performance, scaling, and fault tolerance.
+     Each library produces an artifact that feeds the next.</p>
+  <div class="e2e">
+    <div class="e2e-art">Raw data<br><small>CSV / Parquet / images</small></div>
+    <div class="e2e-arrow">&rarr;</div>
+    <div class="e2e-lib">Ray <b>Data</b><small>load, clean,<br>featurize</small></div>
+    <div class="e2e-arrow">&rarr;</div>
+    <div class="e2e-lib">Ray <b>Train</b><small>distributed<br>training</small></div>
+    <div class="e2e-arrow">&rarr;</div>
+    <div class="e2e-lib">Ray <b>Tune</b><small>hyperparameter<br>search</small></div>
+    <div class="e2e-arrow">&rarr;</div>
+    <div class="e2e-lib serve">Ray <b>Serve</b><small>online<br>endpoint</small></div>
+  </div>
+  <div class="e2e-artrow">
+    <span>dataset</span><span>model + checkpoints</span><span>best model</span>
+    <span class="end">live API</span>
+  </div>
+  <div class="e2e-foot">Ray Core &mdash; distributed scheduler &middot; object store &middot; fault tolerance
+    <span class="sub2">(Ray <b>Data</b> also powers offline <b>batch inference</b> at any stage)</span></div>
+  <p class="note">A unified framework with an ever-growing ecosystem of integrations
+     &mdash; PyTorch, Hugging Face, vLLM, and more &mdash; behind a common interface.</p>
+</div>
+
+<div class="slide">
+  <h2>End-to-end demo &mdash; load &amp; process data with Ray Data</h2>
+  <p class="lead">Product-category prediction. Start by reading the catalog and
+     cleaning text. A <b>per-row</b> transform uses <code>map()</code>.</p>
+<pre class="code"><code><span class="n">ds</span> <span class="o">=</span> <span class="n">ray</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span><span class="s2">&quot;.../ecommerce_product_catalog.csv&quot;</span><span class="p">)</span>
+
+<span class="c1"># lowercase, strip punctuation, concat title + description -&gt; &quot;text&quot;</span>
+<span class="n">ds_cleaned</span> <span class="o">=</span> <span class="n">ds</span><span class="o">.</span><span class="n">map</span><span class="p">(</span><span class="n">clean_and_combine</span><span class="p">)</span>
+<span class="n">ds_cleaned</span><span class="o">.</span><span class="n">take</span><span class="p">(</span><span class="mi">5</span><span class="p">)</span>
+</code></pre>
+  <p class="note">Datasets are <b>lazy &amp; streaming</b>: each operator returns
+     a new Dataset; nothing executes until you take/write the data.</p>
+</div>
+
+<div class="slide">
+  <h2>Vectorize &amp; encode with <code>map_batches</code></h2>
+  <p class="lead">A <b>stateful, batch</b> transform (fitted vectorizer + label
+     map) runs in parallel across block partitions via a class actor.</p>
+<pre class="code"><code><span class="c1"># stateful batch transform -&gt; runs as an actor pool</span>
+<span class="n">ds_encoded</span> <span class="o">=</span> <span class="n">ds_cleaned</span><span class="o">.</span><span class="n">map_batches</span><span class="p">(</span><span class="n">VectorizeAndEncode</span><span class="p">)</span>
+
+<span class="c1"># split for training</span>
+<span class="n">train_ds</span><span class="p">,</span> <span class="n">val_ds</span> <span class="o">=</span> <span class="n">ds_encoded</span><span class="o">.</span><span class="n">train_test_split</span><span class="p">(</span><span class="n">test_size</span><span class="o">=</span><span class="mf">0.2</span><span class="p">,</span> <span class="n">seed</span><span class="o">=</span><span class="mi">42</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">train_ds</span><span class="o">.</span><span class="n">count</span><span class="p">(),</span> <span class="n">val_ds</span><span class="o">.</span><span class="n">count</span><span class="p">())</span>
+</code></pre><pre class="out">Train: 800 rows
+Val:   200 rows</pre>
+  <p class="note"><b>map()</b> = one row at a time &nbsp;|&nbsp;
+     <b>map_batches()</b> = a batch + reusable state (e.g. a loaded model).</p>
+</div>
+
+<div class="slide">
+  <h2>Train a PyTorch classifier with Ray Train</h2>
+<pre class="code"><code><span class="n">trainer</span> <span class="o">=</span> <span class="n">TorchTrainer</span><span class="p">(</span>
+    <span class="n">train_loop_per_worker</span><span class="o">=</span><span class="n">train_loop</span><span class="p">,</span>
+    <span class="n">scaling_config</span><span class="o">=</span><span class="n">ScalingConfig</span><span class="p">(</span><span class="n">num_workers</span><span class="o">=</span><span class="mi">2</span><span class="p">),</span>   <span class="c1"># scale out</span>
+    <span class="n">datasets</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;train&quot;</span><span class="p">:</span> <span class="n">train_ds</span><span class="p">},</span>
+    <span class="n">run_config</span><span class="o">=</span><span class="n">RunConfig</span><span class="p">(</span><span class="n">storage_path</span><span class="o">=</span><span class="s2">&quot;/mnt/cluster_storage/&quot;</span><span class="p">),</span>
+<span class="p">)</span>
+<span class="n">result</span> <span class="o">=</span> <span class="n">trainer</span><span class="o">.</span><span class="n">fit</span><span class="p">()</span>
+<span class="n">result</span><span class="o">.</span><span class="n">metrics_dataframe</span>
+</code></pre>
+  <div class="cols">
+    <div class="col"><pre class="out">   loss   epoch
+0  1.5621   0
+1  0.7319   1
+2  0.1255   2
+3  0.0140   3
+4  0.0029   4</pre></div>
+    <div class="col"><ul>
+      <li><code>ScalingConfig</code> sets the number of distributed workers.</li>
+      <li>Ray Train wraps your model in <code>DistributedDataParallel</code> and
+          shards the dataset automatically.</li>
+      <li>Checkpoints are written each epoch for fault tolerance.</li>
+    </ul></div>
+  </div>
+</div>
+
+<div class="slide">
+  <h2>Optimize hyperparameters with Ray Tune</h2>
+  <p class="lead">Run many trials in parallel to maximize cluster utilization;
+     swap in smart schedulers/search algorithms to reuse knowledge from
+     completed trials.</p>
+<pre class="code"><code><span class="n">tuner</span> <span class="o">=</span> <span class="n">Tuner</span><span class="p">(</span>
+    <span class="n">tune</span><span class="o">.</span><span class="n">with_parameters</span><span class="p">(</span><span class="n">train_driver</span><span class="p">,</span> <span class="n">dataset</span><span class="o">=</span><span class="n">train_ds</span><span class="p">),</span>
+    <span class="n">param_space</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;lr&quot;</span><span class="p">:</span> <span class="n">tune</span><span class="o">.</span><span class="n">loguniform</span><span class="p">(</span><span class="mf">1e-4</span><span class="p">,</span> <span class="mf">1e-1</span><span class="p">)},</span>
+    <span class="n">tune_config</span><span class="o">=</span><span class="n">TuneConfig</span><span class="p">(</span><span class="n">metric</span><span class="o">=</span><span class="s2">&quot;loss&quot;</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s2">&quot;min&quot;</span><span class="p">,</span> <span class="n">num_samples</span><span class="o">=</span><span class="mi">3</span><span class="p">),</span>
+<span class="p">)</span>
+<span class="n">tune_results</span> <span class="o">=</span> <span class="n">tuner</span><span class="o">.</span><span class="n">fit</span><span class="p">()</span>
+<span class="n">best</span> <span class="o">=</span> <span class="n">tune_results</span><span class="o">.</span><span class="n">get_best_result</span><span class="p">(</span><span class="s2">&quot;loss&quot;</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s2">&quot;min&quot;</span><span class="p">)</span>
+</code></pre><pre class="out">   loss     config/lr     trial_id
+0  0.002958  0.024665      34c9b_00000
+1  0.004143  0.076299      34c9b_00001
+2  0.003498  0.004236      34c9b_00002</pre>
+</div>
+
+<div class="slide">
+  <h2>Batch inference &amp; online serving</h2>
+  <div class="cols">
+    <div class="col">
+      <h3>Offline &mdash; Ray Data</h3>
+      <p class="note">Model is the reusable actor state.</p>
+<pre class="code"><code><span class="k">class</span> <span class="nc">OfflinePredictor</span><span class="p">:</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_model</span> <span class="o">=</span> <span class="n">ProductClassifier</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_model</span><span class="o">.</span><span class="n">load_state_dict</span><span class="p">(</span>
+            <span class="n">torch</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">best_path</span> <span class="o">+</span> <span class="s2">&quot;/model.pt&quot;</span><span class="p">))</span>
+
+    <span class="k">def</span> <span class="fm">__call__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">batch</span><span class="p">:</span> <span class="nb">dict</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
+        <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">inference_mode</span><span class="p">():</span>
+            <span class="n">o</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_model</span><span class="p">(</span>
+                <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span><span class="n">batch</span><span class="p">[</span><span class="s2">&quot;features&quot;</span><span class="p">]))</span>
+        <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;prediction&quot;</span><span class="p">:</span> <span class="n">o</span><span class="o">.</span><span class="n">numpy</span><span class="p">()}</span>
+
+<span class="n">preds</span> <span class="o">=</span> <span class="n">val_ds</span><span class="o">.</span><span class="n">map_batches</span><span class="p">(</span>
+    <span class="n">OfflinePredictor</span><span class="p">,</span> <span class="n">concurrency</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
+</code></pre>
+    </div>
+    <div class="col">
+      <h3>Online &mdash; Ray Serve</h3>
+      <p class="note">A class becomes an HTTP deployment.</p>
+<pre class="code"><code><span class="nd">@serve</span><span class="o">.</span><span class="n">deployment</span>
+<span class="k">class</span> <span class="nc">OnlinePredictor</span><span class="p">:</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">checkpoint</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_model</span> <span class="o">=</span> <span class="n">ProductClassifier</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_model</span><span class="o">.</span><span class="n">load_state_dict</span><span class="p">(</span>
+            <span class="n">torch</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">checkpoint</span><span class="p">))</span>
+
+    <span class="k">async</span> <span class="k">def</span> <span class="fm">__call__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">):</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="k">await</span> <span class="n">request</span><span class="o">.</span><span class="n">json</span><span class="p">())</span>
+        <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;prediction&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">data</span><span class="p">)}</span>
+
+<span class="n">handle</span> <span class="o">=</span> <span class="n">serve</span><span class="o">.</span><span class="n">run</span><span class="p">(</span>
+    <span class="n">OnlinePredictor</span><span class="o">.</span><span class="n">bind</span><span class="p">(</span><span class="n">checkpoint</span><span class="o">=</span><span class="n">ckpt</span><span class="p">))</span>
+</code></pre>
+    </div>
+  </div>
+</div>
+
+<div class="slide">
+  <h2>A brief look at Ray Core &mdash; tasks</h2>
+  <p class="lead">Any Python function you can write, you can distribute. Decorate
+     it, then schedule it with <code>.remote()</code>.</p>
+  <div class="cols">
+    <div class="col"><pre class="code"><code><span class="nd">@ray</span><span class="o">.</span><span class="n">remote</span><span class="p">(</span><span class="n">num_cpus</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
+<span class="k">def</span> <span class="nf">f</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">a</span> <span class="o">+</span> <span class="n">b</span>
+
+<span class="n">ref</span> <span class="o">=</span> <span class="n">f</span><span class="o">.</span><span class="n">remote</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>   <span class="c1"># returns immediately</span>
+<span class="n">ref</span>                    <span class="c1"># -&gt; ObjectRef(...)</span>
+
+<span class="n">ray</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">ref</span><span class="p">)</span>           <span class="c1"># block &amp; fetch -&gt; 3</span>
+</code></pre></div>
+    <div class="col">
+      <div class="diagram">
+        <div class="node fn">Python<br>function</div>
+        <div class="arrow-d">@ray.remote &darr;</div>
+        <div class="node task">Ray task<br>(scheduled in cluster)</div>
+        <div class="arrow-d">.remote() &darr;</div>
+        <div class="node ref">ObjectRef<br><small>handle / future</small></div>
+      </div>
+      <p class="note"><b>ObjectRef</b> = a handle to a (maybe not-yet-computed)
+         result. We don't block until we call <code>ray.get</code>.</p>
+    </div>
+  </div>
+</div>
+
+<div class="slide">
+  <h2>Task graphs &amp; actors</h2>
+  <div class="cols">
+    <div class="col">
+      <h3>Task graphs</h3>
+      <p class="note">Pass ObjectRefs as args &mdash; Ray resolves dependencies
+         and schedules without blocking.</p>
+<pre class="code"><code><span class="n">arg1</span> <span class="o">=</span> <span class="n">add</span><span class="o">.</span><span class="n">remote</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+<span class="n">arg2</span> <span class="o">=</span> <span class="n">add</span><span class="o">.</span><span class="n">remote</span><span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="mi">20</span><span class="p">)</span>
+<span class="n">out</span>  <span class="o">=</span> <span class="n">add</span><span class="o">.</span><span class="n">remote</span><span class="p">(</span><span class="n">arg1</span><span class="p">,</span> <span class="n">arg2</span><span class="p">)</span>   <span class="c1"># depends on both</span>
+<span class="n">ray</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">out</span><span class="p">)</span>                    <span class="c1"># -&gt; 33</span>
+</code></pre>
+    </div>
+    <div class="col">
+      <h3>Actors &mdash; stateful</h3>
+      <p class="note">Long-lived class instances in the cluster. Common use:
+         load a large model <b>once</b> and route calls to it.</p>
+<pre class="code"><code><span class="nd">@ray</span><span class="o">.</span><span class="n">remote</span>
+<span class="k">class</span> <span class="nc">Accounting</span><span class="p">:</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>  <span class="bp">self</span><span class="o">.</span><span class="n">total</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="k">def</span> <span class="nf">add</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">amt</span><span class="p">):</span>  <span class="bp">self</span><span class="o">.</span><span class="n">total</span> <span class="o">+=</span> <span class="n">amt</span>
+    <span class="k">def</span> <span class="nf">total</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>     <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">total</span>
+
+<span class="n">acc</span> <span class="o">=</span> <span class="n">Accounting</span><span class="o">.</span><span class="n">remote</span><span class="p">()</span>
+<span class="n">acc</span><span class="o">.</span><span class="n">add</span><span class="o">.</span><span class="n">remote</span><span class="p">(</span><span class="mi">100</span><span class="p">)</span>
+<span class="n">ray</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">acc</span><span class="o">.</span><span class="n">total</span><span class="o">.</span><span class="n">remote</span><span class="p">())</span>   <span class="c1"># -&gt; 100</span>
+</code></pre>
+    </div>
+  </div>
+</div>
+
+<div class="slide">
+  <h2>Ray Data pipeline &mdash; ingest &amp; transform</h2>
+  <p class="lead">Real workload: prepare an eCommerce product catalog (Parquet).
+     Operators chain into a lazy, streaming pipeline.</p>
+<pre class="code"><code><span class="n">cat</span> <span class="o">=</span> <span class="n">ray</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">read_parquet</span><span class="p">(</span><span class="s2">&quot;.../catalog&quot;</span><span class="p">)</span>          <span class="c1"># lazy, streaming</span>
+<span class="n">cat</span><span class="o">.</span><span class="n">rename_columns</span><span class="p">(</span><span class="n">renames</span><span class="p">)</span> \
+   <span class="o">.</span><span class="n">write_parquet</span><span class="p">(</span><span class="s2">&quot;/mnt/cluster_storage/catalog&quot;</span><span class="p">)</span>    <span class="c1"># executes here</span>
+
+<span class="c1"># new expression API is legible to the query optimizer:</span>
+<span class="kn">from</span> <span class="nn">ray.data.expressions</span> <span class="kn">import</span> <span class="n">col</span>
+<span class="n">ds</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">expr</span><span class="o">=</span><span class="n">col</span><span class="p">(</span><span class="s2">&quot;cat&quot;</span><span class="p">)</span> <span class="o">==</span> <span class="s2">&quot;Housewares&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">take</span><span class="p">(</span><span class="mi">3</span><span class="p">)</span>   <span class="c1"># predicate pushdown</span>
+</code></pre>
+  <p class="note">Storage scopes on Anyscale &mdash; <b>shared_storage</b> (org),
+     <b>cluster_storage</b> (cluster), per-user &amp; fast local &mdash; give
+     best-practice data placement. As of 2026 Ray Data has a query optimizer +
+     planner (logical &amp; physical optimizations).</p>
+</div>
+
+<div class="slide">
+  <h2>The core pattern: <code>map_batches</code> + an actor</h2>
+  <p class="lead">Batch inference (here: text embeddings for semantic search).
+     Constructor holds the heavy state (the model); <code>__call__</code>
+     transforms a batch.</p>
+<pre class="code"><code><span class="k">class</span> <span class="nc">AddEmbedding</span><span class="p">:</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">model_id</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">model</span> <span class="o">=</span> <span class="n">SentenceTransformer</span><span class="p">(</span><span class="n">model_id</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="fm">__call__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">batch</span><span class="p">,</span> <span class="n">source</span><span class="p">,</span> <span class="n">dest</span><span class="p">):</span>
+        <span class="n">batch</span><span class="p">[</span><span class="n">dest</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="n">batch</span><span class="p">[</span><span class="n">source</span><span class="p">])</span>
+        <span class="k">return</span> <span class="n">batch</span>
+
+<span class="n">ds</span><span class="o">.</span><span class="n">map_batches</span><span class="p">(</span>
+    <span class="n">AddEmbedding</span><span class="p">,</span>
+    <span class="n">compute</span><span class="o">=</span><span class="n">ray</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">ActorPoolStrategy</span><span class="p">(</span><span class="n">size</span><span class="o">=</span><span class="mi">2</span><span class="p">),</span>   <span class="c1"># pool of model actors</span>
+    <span class="n">fn_constructor_args</span><span class="o">=</span><span class="p">[</span><span class="n">model_path</span><span class="p">],</span>             <span class="c1"># -&gt; __init__</span>
+    <span class="n">fn_args</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;desc&quot;</span><span class="p">,</span> <span class="s2">&quot;desc_emb&quot;</span><span class="p">],</span>                 <span class="c1"># -&gt; __call__</span>
+<span class="p">)</span>
+</code></pre>
+</div>
+
+<div class="slide">
+  <h2>Performance: blocks, parallelism &amp; GPUs</h2>
+  <div class="cols">
+    <div class="col"><ul>
+      <li>Ray Data streams data as <b>blocks</b> (~100&nbsp;MB&ndash;1&nbsp;GB),
+          sized automatically &mdash; independent of your batch size.</li>
+      <li><b>One block &rarr; one actor.</b> A small dataset = one block = no
+          parallelism.</li>
+      <li><code>repartition(n)</code> splits into more blocks &rarr; more
+          parallel actors. (1.5&nbsp;min &rarr; much faster.)</li>
+      <li><code>materialize()</code> caches blocks in the object store for fast
+          iterative testing.</li>
+      <li>GPUs aren't autoscaled &mdash; set an explicit
+          <code>compute</code> strategy.</li>
+    </ul></div>
+    <div class="col"><pre class="code"><code><span class="n">ray</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">read_parquet</span><span class="p">(</span><span class="n">src</span><span class="p">)</span> \
+  <span class="o">.</span><span class="n">repartition</span><span class="p">(</span><span class="mi">4</span><span class="p">)</span> \
+  <span class="o">.</span><span class="n">map_batches</span><span class="p">(</span>
+     <span class="n">AddEmbedding</span><span class="p">,</span>
+     <span class="n">num_gpus</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>           <span class="c1"># schedule on GPU</span>
+     <span class="n">batch_size</span><span class="o">=</span><span class="mi">64</span><span class="p">,</span>        <span class="c1"># fit GPU RAM</span>
+     <span class="n">compute</span><span class="o">=</span><span class="n">ray</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">ActorPoolStrategy</span><span class="p">(</span><span class="n">size</span><span class="o">=</span><span class="mi">2</span><span class="p">),</span>
+     <span class="n">fn_constructor_args</span><span class="o">=</span><span class="p">[</span><span class="n">model_path</span><span class="p">],</span>
+     <span class="n">fn_args</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;desc&quot;</span><span class="p">,</span> <span class="s2">&quot;desc_emb&quot;</span><span class="p">],</span>
+  <span class="p">)</span><span class="o">.</span><span class="n">write_parquet</span><span class="p">(</span><span class="n">dest</span><span class="p">)</span>
+<span class="c1"># GPU run: ~10s  (vs ~90s CPU, 1 actor)</span>
+</code></pre>
+      <p class="note">Tip: if a pipeline is interrupted, stray actors may hold
+         resources &mdash; <code>ray.shutdown()</code> resets cleanly.</p>
+    </div>
+  </div>
+</div>
+
+<div class="slide">
+  <h2>Scaling LLM inference with RayLLM + vLLM</h2>
+  <p class="lead">Generate multimodal catalog copy (image + text &rarr; text).
+     Same <code>map_batches</code> idea, but a managed vLLM engine replaces the
+     hand-written actor &mdash; faster and simpler.</p>
+<pre class="code"><code><span class="n">config</span> <span class="o">=</span> <span class="n">vLLMEngineProcessorConfig</span><span class="p">(</span>
+    <span class="n">model_source</span><span class="o">=</span><span class="n">model_path</span><span class="p">,</span>
+    <span class="n">engine_kwargs</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span><span class="n">max_model_len</span><span class="o">=</span><span class="mi">8192</span><span class="p">,</span>
+                       <span class="n">limit_mm_per_prompt</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;image&quot;</span><span class="p">:</span> <span class="mi">1</span><span class="p">}),</span>
+    <span class="n">batch_size</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">concurrency</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>        <span class="c1"># ~= GPUs used</span>
+<span class="p">)</span>
+<span class="n">processor</span> <span class="o">=</span> <span class="n">build_llm_processor</span><span class="p">(</span>
+    <span class="n">config</span><span class="p">,</span>
+    <span class="n">preprocess</span><span class="o">=</span><span class="k">lambda</span> <span class="n">row</span><span class="p">:</span> <span class="nb">dict</span><span class="p">(</span><span class="n">messages</span><span class="o">=</span><span class="p">[</span><span class="o">...</span><span class="p">],</span> <span class="n">sampling_params</span><span class="o">=...</span><span class="p">),</span>
+    <span class="n">postprocess</span><span class="o">=</span><span class="k">lambda</span> <span class="n">row</span><span class="p">:</span> <span class="nb">dict</span><span class="p">(</span><span class="n">cat_desc</span><span class="o">=</span><span class="n">row</span><span class="p">[</span><span class="s2">&quot;generated_text&quot;</span><span class="p">],</span> <span class="o">...</span><span class="p">),</span>
+<span class="p">)</span>
+<span class="n">ds</span> <span class="o">=</span> <span class="n">processor</span><span class="p">(</span><span class="n">ray</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">read_parquet</span><span class="p">(</span><span class="n">src</span><span class="p">))</span>
+</code></pre>
+  <p class="takeaway"><b>Takeaway:</b> one mental model &mdash; tasks, actors, and
+     <code>map_batches</code> &mdash; scales from a toy function to distributed
+     training, tuning, batch &amp; online inference, and production LLM
+     pipelines. AI assistants can even write much of the Ray code for you.</p>
+</div>
+
+</div>
+<div id="pg"></div>
+<div id="hint">&larr; &rarr; or click to navigate</div>
+<script>
+const slides=[...document.querySelectorAll('.slide')];
+let i=0; const pg=document.getElementById('pg');
+function fit(){ const s=slides[i]; const k=Math.min(innerWidth/1280,innerHeight/720);
+  slides.forEach(el=>el.style.transform='scale('+k+')'); }
+function show(n){ i=Math.max(0,Math.min(slides.length-1,n));
+  slides.forEach((el,j)=>el.classList.toggle('active',j===i));
+  pg.textContent=(i+1)+' / '+slides.length; fit(); }
+addEventListener('keydown',e=>{
+  if(['ArrowRight','ArrowDown','PageDown',' '].includes(e.key)) show(i+1);
+  else if(['ArrowLeft','ArrowUp','PageUp'].includes(e.key)) show(i-1);
+  else if(e.key==='Home') show(0); else if(e.key==='End') show(slides.length-1);
+});
+addEventListener('resize',fit);
+addEventListener('click',e=>{ if(e.target.closest('a'))return; show(i+1); });
+show(0);
+</script>
+</body></html>

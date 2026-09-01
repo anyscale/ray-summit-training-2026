@@ -1,0 +1,27 @@
+#create_extended_desc_job.yaml
+
+name: create_extended_desc_job
+entrypoint: python create_extended_desc_job.py
+
+# Container image: Can be an Anyscale base image, external registry, or custom image
+image_uri: anyscale/image/c26:5
+# OR use containerfile: ./Dockerfile (see "Using a custom container" section below)
+
+# Compute config: Can be name of existing config OR inline definition
+# Use existing: compute_config: my-compute-config:1
+# Or define inline as shown below
+compute_config: 
+  head_node:
+    instance_type: m5.2xlarge
+  worker_nodes:
+    - instance_type: g5.2xlarge
+      min_nodes: 8
+      max_nodes: 8
+
+working_dir: . # Local directory to upload (defaults to current directory)
+#requirements: # Python dependencies - can be list or path to requirements.txt
+#  - numpy==1.26.4
+#  - pandas==2.3.3
+max_retries: 3
+tags:
+  team: training-26
