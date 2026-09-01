@@ -1,0 +1,182 @@
+# llm-serving-for-coding-agents
+
+Self-host an open-source coding-assistant LLM on **Anyscale + Ray Serve LLM** and use it from
+**Claude Code, Codex, and Cursor**.
+
+This repo serves `qwen3.6-27b`, a 27B FP8 hybrid-reasoning and tool-calling model that
+[Qwen positions as comparable to Claude Opus 4.5](https://qwen.ai/blog?id=qwen3.6-27b). With
+**direct streaming** enabled, one Anyscale service exposes the native APIs expected by all three agents,
+without running a separate proxy.
+
+## What This Repo Shows
+
+| Step | Goal | Folder |
+|---|---|---|
+| 1 | Deploy `qwen3.6-27b` on Anyscale with Ray Serve LLM. | [`part1-deploy-naive/`](./part1-deploy-naive/) |
+| 2 | Connect Claude Code, Codex, and Cursor to the served model. | [`part2-connect-clients-production/`](./part2-connect-clients-production/) |
+| 3 | Optimize the deployment for a 1x RTX PRO 6000 with 256K FP8 context. | [`part3-optimize/`](./part3-optimize/) |
+| 4 | Combine the self-hosted model with Claude Opus behind one LiteLLM gateway. | [`part4-litellm-router/`](./part4-litellm-router/) |
+| 5 | Roll the gateway out to a whole team, zero-touch, via Claude Code managed settings. | [`part5-enterprise-rollout/`](./part5-enterprise-rollout/) |
+
+## API Endpoints (via Direct Streaming)
+
+Direct streaming lets one Ray Serve LLM deployment expose the OpenAI and Anthropic Messages APIs
+without a separate proxy. Enable it with service-level environment variables (see
+[`part1-deploy-naive/service_naive.yaml`](./part1-deploy-naive/service_naive.yaml)):
+
+```yaml
+env_vars:
+  RAY_SERVE_ENABLE_HA_PROXY: "1"
+  RAY_SERVE_LLM_ENABLE_DIRECT_STREAMING: "1"
+```
+
+Set these at the **service level**, not in a per-deployment `runtime_env`, so the Ray Serve controller sees
+them during startup. See the [Part 1 README](./part1-deploy-naive/README.md) for details.
+
+With direct streaming enabled, the deployment exposes each agent's expected API path:
+
+| Path | Used by |
+|---|---|
+| `POST /v1/messages` | Claude Code |
+| `POST /v1/responses` | Codex |
+| `POST /v1/chat/completions` | Cursor |
+
+## Prerequisites
+
+- An Anyscale account and the Anyscale CLI (`pip install anyscale`, then `anyscale login`).
+- Claude Code, Codex, and/or Cursor.
+- The stock **public** image `anyscale/ray-llm:2.57.0-py312-cu130` (ray-llm 2.57.0 + **vLLM 0.25.1**),
+  pullable from Docker Hub with no creds — Part 1 uses it as-is, since 0.25.1 accepts Claude Code's
+  `/v1/messages` schema natively. Part 3 builds on the same base to add the RunAI Streamer.
+
+## Quick Start
+
+### 1. Deploy the model
+
+From a terminal in an **Anyscale workspace** (running the image above):
+
+```bash
+cd part1-deploy-naive
+serve run serve_qwen3_6_27b_naive:app     # serves at http://localhost:8000
+```
+
+Or deploy as a public Anyscale **Service** (needed for Cursor, and for sharing):
+`anyscale service deploy -f service_naive.yaml`, then grab the URL + token from the console
+(**Services → your service → Query**).
+
+### 2. Connect a coding agent
+
+Point Claude Code, Codex, or Cursor at the served model via
+[**part2-connect-clients-production**](./part2-connect-clients-production/README.md) — all three connect to the public service URL + token.
+
+### 3. (Optional) Deploy the optimized service
+
+The Part 1 deployment uses 4× L4 GPUs (`g6.12xlarge`, TP=4). Part 3 moves to a single
+**RTX PRO 6000 96 GB** (`g7e.4xlarge`) with TP=1, FP8 KV cache, full 256K context, MTP speculative
+decoding, and autoscale 1→4:
+
+```bash
+cd ../part3-optimize
+anyscale service deploy -f service-always-on.yaml --working-dir .
+```
+
+Measured performance gains and options include:
+
+- **MTP speculative decoding** — default for coding-agent traffic; improves decode **1.89×**, from 45.6 tok/s to 86.4 tok/s.
+- **RunAI Streamer** — optional cold-start path; reduces cold weight-load time **3.4×**, from ~85 s to ~25 s, but cannot be combined with MTP ([vllm#42060](https://github.com/vllm-project/vllm/issues/42060), still open).
+- **Torch.compile cache** — reduces compile startup time **8.5×**, from 74.5 s to 8.8 s, on the no-MTP path only. (Re-measured at 8.0×, 48.5 s → 6.0 s, on vLLM 0.25.1 — absolute timings shift with the vLLM version.)
+- **FP8 KV cache** — doubles 256K-context KV concurrency, from ~3.27× to 6.53×.
+- **CUDA graphs** — improves decode throughput **2.87×**, from 15.9 tok/s to 45.6 tok/s.
+- **Autoscale** — grows serving capacity from 1 to 4 replicas with round-robin routing.
+
+Deployment options include:
+
+- **Always-on config** — [`part3-optimize/service-always-on.yaml`](./part3-optimize/service-always-on.yaml)
+  keeps one warm replica online for min-replica-1 service behavior.
+- **Work-hours config** — [`part3-optimize/service-work-hours.yaml`](./part3-optimize/service-work-hours.yaml)
+  uses min replicas 0 plus [`warmup.sh`](./part3-optimize/warmup.sh) to target
+  work-hours-only GPU spend; verify the `g7e` node actually terminates after idle before relying on
+  the savings.
+
+Then point your agent at the new service URL (Part 2). See the [`Part 3 README`](./part3-optimize/README.md)
+for toggle defaults and the work-hours caveat, [`BENCHMARKS.md`](./part3-optimize/notes/BENCHMARKS.md) for
+measured numbers, and [`INCOMPATIBILITIES.md`](./part3-optimize/notes/INCOMPATIBILITIES.md) for knobs that
+can't be combined.
+
+### 4. (Optional) Combine with Claude Opus via a LiteLLM gateway
+
+Parts 1–3 send all traffic to the self-hosted model. Part 4 deploys a **LiteLLM gateway** as a second,
+CPU-only Anyscale Service in front of it, so Claude Code defaults to your Anyscale model but
+**automatically falls back to Claude Opus** on errors — billed to each user's own Claude Max/Pro
+subscription via OAuth passthrough — and users can switch models on the fly with `/model` or let a
+complexity-based `smart-router` decide per request:
+
+```bash
+cd ../part4-litellm-router/gateway
+anyscale service deploy -f service.yaml
+```
+
+See the [`Part 4 README`](./part4-litellm-router/README.md) for setup and
+[`ROUTING.md`](./part4-litellm-router/ROUTING.md) for how the smart router decides.
+
+### 5. (Optional) Roll out to the whole team via managed settings
+
+Part 4 still asks every developer to run a launcher script. Part 5 removes that last step: an admin
+pushes two JSON files ([`managed-settings.json`](./part5-enterprise-rollout/managed-settings.json),
+[`managed-mcp.json`](./part5-enterprise-rollout/managed-mcp.json)) to each machine via MDM /
+config management, and plain `claude` routes through the gateway with **zero per-user setup** —
+while each user's Claude subscription login stays intact for the Opus fallback. The guide also
+includes a **no-admin validation path** (curl, project-scope settings, and a rootful Linux
+container) so you can prove the whole mechanism before involving IT.
+
+See the [`Part 5 README`](./part5-enterprise-rollout/README.md).
+
+## Collecting Real Claude Code Session Data for Benchmarking
+
+The Part 3 numbers in [`BENCHMARKS.md`](./part3-optimize/notes/BENCHMARKS.md) were measured by replaying
+real Claude Code sessions rather than synthetic prompts. Claude Code saves every session locally as JSONL
+(one JSON object per line) at:
+
+```
+~/.claude/projects/<project>/<session-id>.jsonl
+```
+
+where `<project>` is your working-directory path with non-alphanumeric characters replaced by `-` — a
+project at `/Users/alice/code/myapp` becomes `-Users-alice-code-myapp`.
+
+Copy the sessions you want to benchmark with, then ask your coding agent to extract the per-request token
+counts and replay them against the service. Transcripts contain your source code and prompts, so treat
+trace files like source code.
+
+## How Much Does It Save?
+
+The simple planning number is **~50 registered developers per RTX PRO 6000 GPU**. The GPU can hold
+roughly **24 average-length active cached sessions** at once, and the lower planning number leaves
+room for long prompts, work-hour spikes, and several developers asking the model to work at the same
+time.
+
+On that sizing, always-on self-hosting is about **$58 per developer-month**:
+
+- **Self-hosted:** about **$2,900/month per GPU**, or **$58/dev-month** at 50 developers/GPU.
+- **Subscription seats:** about **$200/dev-month** for Max-20x/Ultra-class plans.
+- **Token-metered usage:** about **$800/dev-month** for heavy API or enterprise-tier usage; Pylon
+  measured about **$780/dev-month**.
+
+For a 100-developer team, plan on **2+ GPUs during busy periods**. The always-on base case is about
+**$5.8K/month**, compared with **$20K/month** for seats or **$80K/month** for token-metered billing.
+That works out to roughly **$14.2K/month saved vs seats** and **$74.2K/month saved vs token billing**.
+
+Work-hours mode can be cheaper if the GPU nodes really shut down outside the workday. In that case,
+the target is about **$840/month per GPU**, or **$17/dev-month** at 50 developers/GPU. For the same
+100-developer planning case, that is about **$18.3K/month saved vs seats** and **$78.3K/month saved
+vs token billing**.
+
+The break-even point is small because the GPU is a shared fixed cost: about **15 developers** versus
+subscription seats for always-on, about **4 developers** versus seats for work-hours, and **1–4
+developers** versus token-metered billing.
+
+These savings only matter if the model is good enough for the same coding-agent work. The quality
+case is that [Qwen's launch post compares Qwen3.6-27B with Claude Opus 4.5](https://qwen.ai/blog?id=qwen3.6-27b),
+but teams should still validate it on their own repos and workflows. See
+[`part3-optimize/notes/COST-ESTIMATE.md`](./part3-optimize/notes/COST-ESTIMATE.md) for the full
+savings tables, token math, and caveats.
