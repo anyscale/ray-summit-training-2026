@@ -1,0 +1,72 @@
+# Deploy with: anyscale service deploy -f service.yaml
+#
+# Needs a live SQS queue and S3 bucket. Credentials come from the instance role,
+# which is why no AWS_ACCESS_KEY_ID appears anywhere in this directory: the queue
+# and bucket NAMES are config, the credentials are infrastructure.
+#
+# The service exposes no useful route. Work arrives from SQS, so there is nothing
+# for a client to POST; route_prefix exists only because Serve requires one.
+#
+# Three files: app.py wires the graph, poller.py drains the queue, image_model.py
+# holds the GPU. All three ship, because the controller imports app.py which
+# imports the other two.
+
+name: stream-processing
+
+# CUDA image: the image generator holds a GPU.
+image_uri: anyscale/ray:2.56.0-py312-cu125
+
+working_dir: .
+
+requirements:
+  - boto3        # SQS + S3
+  - diffusers    # the image model
+  - transformers
+  - torch
+  - pydantic
+
+applications:
+  - name: stream-processing
+    route_prefix: /
+    import_path: app:build_app
+    args:
+      queue_name: your-queue-name
+      bucket: your-bucket-name
+
+    runtime_env:
+      env_vars:
+        AWS_REGION: us-west-2
+
+    deployments:
+      # One poller. Scaling the poller does not scale throughput, it only
+      # multiplies duplicate handling; the model pool below is what scales.
+      - name: QueuePoller
+        num_replicas: 1
+        ray_actor_options:
+          num_cpus: 0.2
+
+      # The GPU pool. max_queued_requests is what makes backpressure reach the
+      # poller: without it the handle queues without bound and the backoff in
+      # poller.py never fires.
+      - name: ImageGenerator
+        ray_actor_options:
+          num_gpus: 1
+          num_cpus: 1
+        max_queued_requests: 3
+        max_ongoing_requests: 1
+        autoscaling_config:
+          min_replicas: 1
+          max_replicas: 10
+          target_ongoing_requests: 1
+          upscale_delay_s: 10
+          downscale_delay_s: 300
+
+compute_config:
+  head_node:
+    instance_type: m5.2xlarge
+  worker_nodes:
+    - name: gpu-workers
+      instance_type: g5.xlarge
+      min_nodes: 1
+      max_nodes: 10
+      market_type: ON_DEMAND

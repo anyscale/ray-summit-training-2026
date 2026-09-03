@@ -1,0 +1,86 @@
+# Deploy with: anyscale service deploy -f tracing_service.yaml
+# Docs: https://docs.anyscale.com/monitoring/tracing/
+#
+# `tracing_config` is an Anyscale Service feature, not OSS Ray Serve, so tracing
+# cannot be switched on from inside a notebook or a `serve run`. It is a property
+# of the deployed Service, which is why this directory has a yaml and no runnable
+# cell.
+#
+# After a request lands, spans are written to each instance holding an active
+# replica, under:
+#
+#     /tmp/ray/session_latest/logs/serve/spans/
+#
+# One file per component, so a single request appears in several: a
+# proxy_<ip>_tracing.jsonl for the HTTP hop, plus a
+# replica_<app>_<Deployment>_<id>_tracing.jsonl for every deployment it touched.
+# Join them on the trace id to reconstruct the request.
+
+name: tracing-demo
+
+image_uri: anyscale/ray:2.56.0-slim-py312
+
+working_dir: .
+
+# Tracing needs the OpenTelemetry SDK and the exporter in the replica environment.
+# Ray does not bundle them, so they are declared here. The instrumentation
+# packages version in lockstep with the API/SDK (0.x tracks 1.x), so bump them
+# together or the exporter fails to load.
+requirements:
+  - pydantic
+  - opentelemetry-api
+  - opentelemetry-sdk
+  - opentelemetry-exporter-otlp
+  - opentelemetry-exporter-otlp-proto-grpc
+  - opentelemetry-instrumentation
+  - opentelemetry-instrumentation-asgi
+  - opentelemetry-instrumentation-fastapi
+
+# Turn tracing on for the proxy and every replica.
+tracing_config:
+  enabled: True
+  # 1.0 traces every request. Correct for a demo and wrong for production: at
+  # real volume, sampling every request costs latency and storage. Start around
+  # 0.01 and raise it while chasing something specific.
+  sampling_ratio: 1.0
+
+applications:
+  - name: tracing-demo
+    route_prefix: /
+    import_path: app:build_app
+    args:
+      # Shift these to move the time between hops and watch the span widths
+      # change: more iterations makes Scorer dominate, more latency makes
+      # Enricher dominate.
+      work_iterations: 200000
+      lookup_latency_s: 0.05
+
+    deployments:
+      - name: Ingress
+        ray_actor_options:
+          num_cpus: 1
+        autoscaling_config:
+          min_replicas: 2
+          max_replicas: 10
+      - name: Enricher
+        ray_actor_options:
+          num_cpus: 1
+        autoscaling_config:
+          min_replicas: 2
+          max_replicas: 10
+      - name: Scorer
+        ray_actor_options:
+          num_cpus: 1
+        autoscaling_config:
+          min_replicas: 2
+          max_replicas: 20
+
+compute_config:
+  head_node:
+    instance_type: m5.2xlarge
+  worker_nodes:
+    - name: cpu-workers
+      instance_type: m5.2xlarge
+      min_nodes: 1
+      max_nodes: 10
+      market_type: ON_DEMAND

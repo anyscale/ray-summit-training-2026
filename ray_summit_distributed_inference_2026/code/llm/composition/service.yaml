@@ -1,0 +1,36 @@
+# Tier-1 composed Service: a CPU triage deployment in front of Qwen2.5-0.5B on
+# one GPU. RUNS in the course workspace.
+#
+# Same app as `serve run app:build_app`, deployed as an Anyscale
+# Service. Note what is NOT here: no separate LLM service to call, because the
+# LLM is a deployment inside this application, scheduled and scaled with it.
+
+name: llm-compose
+
+# A Ray LLM image (bundles vLLM). Match the tag to your workspace image.
+image_uri: anyscale/ray-llm:2.56.0-py312-cu130
+
+working_dir: .
+
+applications:
+  - name: llm-compose
+    route_prefix: /
+    # Builds Assistant.bind(Triage.bind(...), build_llm_deployment(...)).
+    import_path: app:build_app
+    args:
+      model_id: qwen-0.5b
+      # TIER1 MODEL: duplicated by design. Sync all: grep -rn "TIER1 MODEL" .
+      # S3 mirror. app.py sets both load_format=runai_streamer and the
+      # runtime_env AWS_REGION the streamer's S3 client needs.
+      model_source: s3://anyscale-public-materials-use2/models/Qwen/Qwen2.5-0.5B-Instruct
+
+# One small GPU for the LLM deployment; the triage deployment rides on CPU.
+compute_config:
+  head_node:
+    instance_type: m5.2xlarge        # control plane plus the CPU triage replica
+  worker_nodes:
+    - name: gpu-workers
+      instance_type: g7e.4xlarge     # 1 GPU
+      min_nodes: 1
+      max_nodes: 2
+      market_type: ON_DEMAND

@@ -1,0 +1,66 @@
+# Tier-2 (PRODUCTION) P/D disaggregation.
+# Requires a multi-node, NIXL-capable H100 cluster. This is the target shape for
+# a Kimi-class model served with prefill and decode on separate pools.
+#
+# Same builder as the Tier-1 app.py (ray.serve.llm:build_pd_openai_app). The
+# production differences: a large model, prefill and decode pools sized
+# independently (decode gets more replicas; it is the steady-state bottleneck),
+# tensor parallelism within a node plus pipeline parallelism across the two nodes each replica spans, and NIXL moving KV between them.
+
+name: pd-disagg-prod
+
+image_uri: anyscale/ray-llm:2.56.0-py312-cu130   # must include the NIXL connector
+
+working_dir: .
+
+applications:
+  - name: pd-disagg-prod
+    route_prefix: /
+    import_path: ray.serve.llm:build_pd_openai_app
+    args:
+      # Prefill pool: compute-bound. Fewer replicas, large token budget.
+      prefill_config:
+        model_loading_config:
+          model_id: kimi-moe
+          model_source: moonshotai/Kimi-K2-Instruct
+        accelerator_type: H100
+        deployment_config:
+          autoscaling_config:
+            min_replicas: 1
+            max_replicas: 4
+        engine_kwargs:
+          pipeline_parallel_size: 2   # 2 nodes per replica: a ~1TB checkpoint exceeds one 8xH100 node (640 GB)
+          tensor_parallel_size: 8     # shard each rank across the 8 GPUs in a node
+          max_model_len: 131072
+          enable_chunked_prefill: true
+          kv_transfer_config:
+            kv_connector: NixlConnector
+            kv_role: kv_both
+      # Decode pool: memory-bound, steady state. More replicas.
+      decode_config:
+        model_loading_config:
+          model_id: kimi-moe                  # MUST match prefill_config.model_id
+          model_source: moonshotai/Kimi-K2-Instruct
+        accelerator_type: H100
+        deployment_config:
+          autoscaling_config:
+            min_replicas: 2
+            max_replicas: 8
+        engine_kwargs:
+          pipeline_parallel_size: 2   # 2 nodes per replica: a ~1TB checkpoint exceeds one 8xH100 node (640 GB)
+          tensor_parallel_size: 8     # shard each rank across the 8 GPUs in a node
+          max_model_len: 131072
+          enable_prefix_caching: true
+          kv_transfer_config:
+            kv_connector: NixlConnector
+            kv_role: kv_both
+
+compute_config:
+  head_node:
+    instance_type: m5.2xlarge
+  worker_nodes:
+    - name: gpu-workers
+      instance_type: p5.48xlarge          # 8x H100 per node; 2 nodes per replica (PP=2) for a ~1TB model
+      min_nodes: 6
+      max_nodes: 24
+      market_type: ON_DEMAND

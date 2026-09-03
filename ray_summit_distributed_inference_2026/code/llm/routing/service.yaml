@@ -1,0 +1,37 @@
+# Tier-1 routing Service: Qwen2.5-0.5B with KV-cache-aware routing across
+# replicas. RUNS in the course workspace (2 GPUs).
+#
+# Same builder as `serve run app:build_app`, as an Anyscale Service:
+# stable HTTPS + token auth, replica + cluster autoscaling, rolling updates. The
+# routing win needs >=2 replicas, so the GPU node group scales to 2+.
+
+name: llm-routing
+
+# A Ray LLM image (bundles vLLM). Match the tag to your workspace image.
+image_uri: anyscale/ray-llm:2.56.0-py312-cu130
+
+working_dir: .
+
+applications:
+  - name: llm-routing
+    route_prefix: /
+    # PrefixCacheAffinityRouter across the model's replicas (see app.py).
+    import_path: app:build_app
+    args:
+      model_id: qwen-0.5b
+      # TIER1 MODEL: duplicated by design. Sync all: grep -rn "TIER1 MODEL" .
+      # S3 mirror. app.py sets both load_format=runai_streamer and the
+      # runtime_env AWS_REGION the streamer's S3 client needs.
+      model_source: s3://anyscale-public-materials-use2/models/Qwen/Qwen2.5-0.5B-Instruct
+      min_replicas: 2          # 2 replicas so routing has somewhere to choose
+
+# One GPU per replica; scale the GPU group to hold the fleet.
+compute_config:
+  head_node:
+    instance_type: m5.2xlarge        # control plane only, no model work
+  worker_nodes:
+    - name: gpu-workers
+      instance_type: g7e.4xlarge     # 1 GPU each
+      min_nodes: 2
+      max_nodes: 4
+      market_type: ON_DEMAND

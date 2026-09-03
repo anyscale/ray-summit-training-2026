@@ -1,0 +1,75 @@
+# Deploy with: anyscale service deploy -f service.yaml
+# Docs: https://docs.anyscale.com/reference/service-api#serviceconfig
+#
+# This is the SAME graph you ran locally with `serve run app:app`. Moving to a
+# Service changes nothing in the Python. It adds a stable HTTPS endpoint with
+# token auth, replica + cluster autoscaling, and zero-downtime rolling updates.
+
+name: ranker
+
+# Pin to the image your workspace runs. Use a CUDA image (drop `-slim`) if the
+# Ranker reserves a GPU (see the num_gpus note below). Update the tag to match
+# your Anyscale environment's available images.
+image_uri: anyscale/ray:2.56.0-slim-py312
+
+# Uploaded as the working directory; `import_path` is resolved from here.
+working_dir: .
+
+requirements:
+  - torch        # the two-tower model
+  - pydantic     # request/response validation
+
+applications:
+  - name: ranker
+    route_prefix: /
+    # module:function. `build_app` is the application builder in app.py. It
+    # takes `args` (below) and returns the bound graph.
+    import_path: app:build_app
+    args:
+      # Validated into RankerAppArgs; points the Ranker at the production weights.
+      weights_path: /mnt/cluster_storage/ranker_serve/ranker.pt
+
+    # Per-deployment overrides. These WIN over the decorator defaults in the
+    # Python, so production sizing lives here, not in the code.
+    deployments:
+      # Lightweight HTTP boundary. Scales with request fan-in, not compute.
+      - name: Ingress
+        ray_actor_options:
+          num_cpus: 1
+        max_ongoing_requests: 32
+        autoscaling_config:
+          min_replicas: 2          # keep 2 warm so there is no cold-start gap
+          max_replicas: 20
+          target_ongoing_requests: 16
+          upscale_delay_s: 10      # react fast to traffic climbing
+          downscale_delay_s: 600   # release slowly to avoid flapping
+
+      # The model. target_ongoing_requests is set to the batch size so a replica
+      # runs roughly one full batch in flight; max_ongoing_requests stays >= it
+      # so a batch can actually fill before the autoscaler reacts.
+      - name: Ranker
+        ray_actor_options:
+          num_cpus: 2
+          # GPU variant: reserve a (fractional) GPU AND keep CPU for I/O:
+          #   num_gpus: 1
+          #   num_cpus: 2
+        max_ongoing_requests: 64
+        autoscaling_config:
+          min_replicas: 1
+          max_replicas: 8
+          target_ongoing_requests: 32
+          upscale_delay_s: 10      # add replicas quickly under a spike
+          downscale_delay_s: 600   # shed them gently
+          upscaling_factor: 1.5    # take bigger upscale steps when behind
+
+# Compute the replicas run on. CPU-only here; swap in a GPU worker group and the
+# Ranker's num_gpus reservation to serve the model on GPU.
+compute_config:
+  head_node:
+    instance_type: m5.2xlarge      # routing + control only, no model work
+  worker_nodes:
+    - name: cpu-workers
+      instance_type: m5.2xlarge
+      min_nodes: 1
+      max_nodes: 10
+      market_type: ON_DEMAND
