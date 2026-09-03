@@ -1,0 +1,55 @@
+# Deploy with: anyscale service deploy -f service.yaml
+#
+# The router travels as an import string (`router:UserAffinityRouter`), resolved
+# against this working_dir on the controller. That is why router.py has to ship
+# alongside app.py: the controller imports it, not just the replicas.
+
+name: custom-routing
+
+image_uri: anyscale/ray:2.56.0-slim-py312
+
+working_dir: .
+
+requirements:
+  - torch
+  - pydantic
+
+applications:
+  - name: custom-routing
+    route_prefix: /
+    import_path: app:build_app
+    args:
+      imbalance_threshold: 10
+      # At least 2, or the router has nothing to choose between.
+      min_replicas: 2
+
+    deployments:
+      - name: Ingress
+        ray_actor_options:
+          num_cpus: 1
+        autoscaling_config:
+          min_replicas: 2
+          max_replicas: 10
+
+      # Per-deployment overrides win over the decorator, but request_router_config
+      # is set by the builder in app.py rather than here: request_router_kwargs
+      # comes from `args:` above, so the router's tuning stays in one place.
+      - name: Ranker
+        ray_actor_options:
+          num_cpus: 1
+        max_ongoing_requests: 16
+        autoscaling_config:
+          min_replicas: 2
+          max_replicas: 6
+          upscale_delay_s: 10
+          downscale_delay_s: 300
+
+compute_config:
+  head_node:
+    instance_type: m5.2xlarge
+  worker_nodes:
+    - name: cpu-workers
+      instance_type: m5.2xlarge
+      min_nodes: 1
+      max_nodes: 6
+      market_type: ON_DEMAND

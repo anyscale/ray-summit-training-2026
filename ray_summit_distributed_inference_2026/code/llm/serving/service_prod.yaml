@@ -1,0 +1,47 @@
+# Tier-2 (PRODUCTION) LLM Service. Requires an H100-class multi-GPU node group.
+#
+# The point: scaling from the Tier-1 endpoint (service.yaml) to a large model is a
+# CONFIG change, not new code. A bigger model_source, tensor_parallel_size across
+# the GPUs of a node, a longer context, and chunked prefill for throughput.
+#
+# import_path goes straight to `ray.serve.llm:build_openai_app` rather than the
+# Tier-1 `app:build_app`, because app.tier1_llm_config hard-codes the small-GPU
+# values (max_model_len, enforce_eager). Production declares its whole llm_configs
+# block here instead. Extend LLMAppArgs if you would rather keep one entry point.
+
+name: llm-serving-prod
+
+image_uri: anyscale/ray-llm:2.56.0-py312-cu130
+
+working_dir: .
+
+applications:
+  - name: llm-serving-prod
+    route_prefix: /
+    import_path: ray.serve.llm:build_openai_app
+    args:
+      llm_configs:
+        - model_loading_config:
+            model_id: llama-3.1-70b
+            model_source: meta-llama/Llama-3.1-70B-Instruct
+          accelerator_type: H100
+          deployment_config:
+            autoscaling_config:
+              min_replicas: 1
+              max_replicas: 4
+              target_ongoing_requests: 32
+          engine_kwargs:
+            tensor_parallel_size: 8        # shard the model across 8 GPUs of a node
+            max_model_len: 131072          # long context
+            enable_chunked_prefill: true   # keep decode latency low under big prefills
+            enable_prefix_caching: true
+
+compute_config:
+  head_node:
+    instance_type: m5.2xlarge
+  worker_nodes:
+    - name: gpu-workers
+      instance_type: p5.48xlarge         # 8x H100
+      min_nodes: 1
+      max_nodes: 4
+      market_type: ON_DEMAND

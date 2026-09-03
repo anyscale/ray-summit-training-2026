@@ -1,0 +1,69 @@
+# Deploy with: anyscale service deploy -f benchmark.yaml
+#
+# The Ranker, pinned for measurement rather than for production. Deploy this,
+# run Locust against it, and read `target_ongoing_requests` off the result.
+#
+# Two deliberate departures from ../ranking/service.yaml:
+#
+#   min_replicas == max_replicas == 1
+#     Autoscaling is OFF. You are measuring what ONE replica can do; a fleet that
+#     grows mid-run changes the thing you are measuring.
+#
+#   max_ongoing_requests: 10000
+#     Serve's own backpressure is lifted. The default would queue requests at the
+#     replica and cap the test below the latency knee, so the knee would never
+#     appear in the results.
+#
+# Then watch ray_serve_replica_processing_queries, the replica's ongoing-request
+# gauge and the exact field the autoscaler divides by target_ongoing_requests:
+#
+#   avg(ray_serve_replica_processing_queries{deployment="Ranker"})
+#
+# Read its value at the offered load where p95 still meets your SLO. That reading
+# is target_ongoing_requests. No arithmetic.
+#
+# This is the one config in code/ that points outside its own directory: the app
+# under test lives in ../ranking, and a benchmark config divorced from the
+# generator that drives it is worse than the cross-reference.
+
+name: ranker-benchmark
+
+image_uri: anyscale/ray:2.56.0-slim-py312
+
+working_dir: ../ranking
+
+requirements:
+  - torch
+  - pydantic
+
+applications:
+  - name: ranker-benchmark
+    route_prefix: /
+    import_path: app:build_app
+    args:
+      weights_path: /mnt/cluster_storage/ranker_serve/ranker.pt
+
+    deployments:
+      - name: Ingress
+        ray_actor_options:
+          num_cpus: 1
+        # The ingress must not be the bottleneck, or you measure it instead of
+        # the model. Give it plenty of headroom and fix its replica count too.
+        max_ongoing_requests: 10000
+        num_replicas: 2
+
+      - name: Ranker
+        ray_actor_options:
+          num_cpus: 2
+        max_ongoing_requests: 10000   # lift backpressure: see the note above
+        num_replicas: 1               # one replica, no autoscaling
+
+compute_config:
+  head_node:
+    instance_type: m5.2xlarge
+  worker_nodes:
+    - name: cpu-workers
+      instance_type: m5.2xlarge
+      min_nodes: 1
+      max_nodes: 2
+      market_type: ON_DEMAND

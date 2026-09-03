@@ -1,0 +1,44 @@
+# Tier-2 (PRODUCTION) wide expert parallelism.
+# Requires a large multi-node H100/H200 cluster. The target shape for a
+# DeepSeek-class MoE model served with WideEP + data-parallel attention.
+#
+# Same builder as the Tier-1 app.py (ray.serve.llm:build_dp_openai_app, singular
+# llm_config). The production differences: a real MoE model,
+# enable_expert_parallel=True to shard experts, and a large data_parallel_size to
+# keep the experts fed. Serve gang-schedules the ranks and places them
+# automatically; each rank needs a full 8-GPU node, so the gang fans across nodes.
+
+name: wideep-prod
+
+image_uri: anyscale/ray-llm:2.56.0-py312-cu130
+
+working_dir: .
+
+applications:
+  - name: wideep-prod
+    route_prefix: /
+    import_path: ray.serve.llm:build_dp_openai_app
+    args:
+      llm_config:                                  # SINGULAR (not llm_configs)
+        model_loading_config:
+          model_id: deepseek-moe
+          model_source: deepseek-ai/DeepSeek-V3    # a DeepSeek-class MoE checkpoint
+        accelerator_type: H100
+        engine_kwargs:
+          data_parallel_size: 16                   # 16-way data-parallel attention
+          tensor_parallel_size: 8                  # shard each rank across 8 GPUs
+          enable_expert_parallel: true             # WideEP: shard the MoE experts
+          max_model_len: 65536
+          enable_chunked_prefill: true
+        # Serve gang-schedules the 16 ranks and places them automatically (PACK per
+        # rank). Each rank needs a full 8-GPU node, so the gang fans across the nodes.
+
+compute_config:
+  head_node:
+    instance_type: m5.2xlarge
+  worker_nodes:
+    - name: gpu-workers
+      instance_type: p5.48xlarge                   # 8x H100 per node
+      min_nodes: 16
+      max_nodes: 16
+      market_type: ON_DEMAND

@@ -1,0 +1,9 @@
+# Shipped to students as the .gitignore on `main`.
+#
+# Deliberately does NOT ignore .claude/ : the README tells students to install the
+# shipped agent/ skills into .claude/skills/, and ignoring that directory would make
+# the install invisible to git.
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.DS_Store

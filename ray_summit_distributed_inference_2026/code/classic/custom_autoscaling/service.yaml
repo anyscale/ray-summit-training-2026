@@ -1,0 +1,75 @@
+# Deploy with: anyscale service deploy -f service.yaml
+#
+# The policy is resolved on the CONTROLLER, from an import string, against this
+# working_dir. That is why the policy_*.py modules ship next to app.py: the controller
+# imports it, and a policy passed as a callable would not survive serialization
+# into this config at all.
+
+name: custom-autoscaling
+
+image_uri: anyscale/ray:2.56.0-slim-py312
+
+working_dir: .
+
+requirements:
+  - psutil     # the resource readings record_autoscaling_stats publishes
+  - pydantic
+
+applications:
+  - name: custom-autoscaling
+    route_prefix: /
+    import_path: app:build_app
+    args:
+      # Swap to compare policies without touching code. See README.md; the other
+      # options are policy_schedule:policy and policy_queue_latency:policy.
+      policy_function: policy_resource_pressure:policy
+      min_replicas: 1
+      max_replicas: 6
+
+    runtime_env:
+      env_vars:
+        # The default push interval is 10s, which is slower than the 10s
+        # upscale_delay_s in app.py, so a custom-metrics policy would act on
+        # readings up to a full interval stale. 1s makes the loop responsive.
+        RAY_SERVE_REPLICA_AUTOSCALING_METRIC_PUSH_INTERVAL_S: "1"
+        # Records more often than it pushes, so each push carries a fresh sample.
+        RAY_SERVE_REPLICA_AUTOSCALING_METRIC_RECORD_INTERVAL_S: "0.5"
+
+    deployments:
+      - name: Ingress
+        ray_actor_options:
+          num_cpus: 1
+        autoscaling_config:
+          min_replicas: 2
+          max_replicas: 10
+
+      # No autoscaling_config override here on purpose. The builder in app.py
+      # owns it, because the policy and its bounds have to move together and
+      # splitting them across two files is how they drift.
+      - name: Worker
+        ray_actor_options:
+          num_cpus: 1
+        max_ongoing_requests: 5
+
+compute_config:
+  head_node:
+    instance_type: m5.2xlarge
+  worker_nodes:
+    - name: cpu-workers
+      instance_type: m5.2xlarge
+      min_nodes: 1
+      max_nodes: 6
+      market_type: ON_DEMAND
+
+# The class-based policy in policy_external_target.py needs policy_kwargs, which
+# requires Ray 2.56 or newer:
+#
+#   policy:
+#     policy_function: policy_external_target:ExternalTargetPolicy
+#     policy_kwargs:
+#       file_path: /mnt/cluster_storage/custom_autoscaling/target.json
+#       poll_interval_s: 5.0
+#
+# It cannot be expressed through this file's `args:` block, because args feed the
+# application builder while policy_kwargs belongs to AutoscalingConfig. Set it in
+# build_app instead.
