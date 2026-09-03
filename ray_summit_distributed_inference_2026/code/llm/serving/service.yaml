@@ -1,0 +1,37 @@
+# Tier-1 LLM Service: Qwen2.5-0.5B on one GPU. RUNS in the course workspace.
+# Deploy with: anyscale service deploy -f service.yaml
+#
+# This is the same app as `serve run app:build_app`, as an Anyscale
+# Service: stable HTTPS + token auth, replica + cluster autoscaling, rolling
+# updates. For the production-scale version (large model, multi-GPU), see
+# service_prod.yaml (shown, not run here).
+
+name: llm-serving
+
+# A Ray LLM image (bundles vLLM). Match the tag to your workspace image.
+image_uri: anyscale/ray-llm:2.56.0-py312-cu130
+
+working_dir: .
+
+applications:
+  - name: llm-serving
+    route_prefix: /
+    # Build the OpenAI-compatible app for one model from validated args.
+    import_path: app:build_app
+    args:
+      model_id: qwen-0.5b
+      # TIER1 MODEL: duplicated by design. Sync all: grep -rn "TIER1 MODEL" .
+      # S3 mirror. app.py sets both load_format=runai_streamer and the
+      # runtime_env AWS_REGION the streamer's S3 client needs.
+      model_source: s3://anyscale-public-materials-use2/models/Qwen/Qwen2.5-0.5B-Instruct
+
+# One small GPU is enough for the 0.5B model.
+compute_config:
+  head_node:
+    instance_type: m5.2xlarge        # control plane only, no model work
+  worker_nodes:
+    - name: gpu-workers
+      instance_type: g7e.4xlarge     # 1 GPU
+      min_nodes: 1
+      max_nodes: 2
+      market_type: ON_DEMAND
