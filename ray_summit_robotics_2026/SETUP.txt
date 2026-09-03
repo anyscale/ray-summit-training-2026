@@ -1,0 +1,41 @@
+================================================================================
+SETUP: INSTALL YOUR AGENT
+Scaling Physical AI & Robotics Systems with Ray
+================================================================================
+
+This is the setup for the agent-led track: instead of stepping through notebook
+cells yourself, you point a coding agent at Anyscale and have it fine-tune
+SmolVLA (a compact vision-language-action policy) on streamed LeRobot data.
+
+Install one agent CLI, then the Anyscale skills. Copy and paste as is.
+
+
+--------------------------------------------------------------------------------
+1. INSTALL AN AGENT CLI  (pick one)
+--------------------------------------------------------------------------------
+
+  # Claude Code, standalone, no Node needed
+  curl -fsSL https://claude.ai/install.sh | bash
+
+  # Cursor CLI (cursor-agent), standalone, no Node needed
+  curl https://cursor.com/install -fsS | bash
+
+  # Codex CLI, npm package, needs Node
+  npm install -g @openai/codex
+
+  # Copilot CLI, npm package, needs Node
+  npm install -g @github/copilot
+
+
+--------------------------------------------------------------------------------
+2. INSTALL THE SKILLS  (same three commands whichever CLI you picked)
+--------------------------------------------------------------------------------
+
+  pip install -U anyscale
+  anyscale login
+  anyscale skills install -p claude-code -p cursor -p codex --accept-terms
+
+`anyscale skills install` is what teaches your agent this platform, so don't
+skip it. It gives whichever agent you installed the Anyscale platform skills, so
+the agent knows how to build a Ray Train workload, submit it, and read the
+result back.

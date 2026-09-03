@@ -1,0 +1,21 @@
+__pycache__/
+.ipynb_checkpoints/
+*.pyc
+.env
+.env.*
+*.log
+
+# ML/data artifacts
+data/
+checkpoints/
+outputs/
+wandb/
+mlruns/
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+
+# Ray / Anyscale artifacts
+/tmp/
+ray_results/

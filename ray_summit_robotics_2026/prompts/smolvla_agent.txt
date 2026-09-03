@@ -1,0 +1,12 @@
+Read AGENT_RULES.md and follow it throughout.
+
+Task: using the physical-ai skill, run a SmolVLA fine-tune end to end, right now.
+This is a smoke test validating prompt-to-checkpoint on this cluster. Optimize
+for shortest wall-clock to a VERIFIED checkpoint; the policy does not need to
+be good.
+
+Job specifics:
+1. 50 training steps, batch size minimal, enough to see loss move.
+2. Per rule 3, detect GPU capability and choose bf16 vs fp16 accordingly.
+3. Per rules 7 and 16: fresh timestamped run name, and hand back only after the
+   checkpoint is written, re-loaded, and its keys printed.
