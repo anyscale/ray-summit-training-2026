@@ -1,0 +1,69 @@
+# Deploy with: anyscale service deploy -f service.yaml
+#
+# The same queue worker you ran with `serve run app:build_app`, now with replica
+# autoscaling and a stable endpoint for the control plane.
+#
+# One thing changes for real deployments: the broker. app.py defaults to Celery's
+# filesystem transport so the example runs with no infrastructure, but that
+# transport polls a shared directory and assumes every worker can see it. A
+# multi-node Service wants a real broker, which is why ASYNC_QUEUE_ROOT points at
+# the shared mount here and why the redis:// alternative is spelled out below.
+
+name: async-inference
+
+image_uri: anyscale/ray:2.56.0-slim-py312
+
+working_dir: .
+
+requirements:
+  - torch                          # the scorer
+  - pydantic                       # builder-arg validation
+  - "ray[serve-async-inference]"   # pulls celery, which the task-consumer adapter needs
+
+applications:
+  - name: async-inference
+    route_prefix: /
+    import_path: app:build_app
+    args:
+      default_candidates: 50000
+
+    runtime_env:
+      env_vars:
+        # Read at import time by app.py, because @task_consumer takes its config
+        # when the class is decorated. The shared mount is visible to every
+        # replica, which the filesystem broker requires.
+        ASYNC_QUEUE_ROOT: /mnt/cluster_storage/async_inference
+
+    deployments:
+      # Scale on queue depth, not on request rate: there are no HTTP requests to
+      # count. AsyncInferenceAutoscalingPolicy reads the broker's backlog, which
+      # is the signal that actually tracks pending work.
+      - name: Scorer
+        ray_actor_options:
+          num_cpus: 2
+        autoscaling_config:
+          min_replicas: 1
+          max_replicas: 8
+          upscale_delay_s: 10
+          downscale_delay_s: 300
+
+compute_config:
+  head_node:
+    instance_type: m5.2xlarge
+  worker_nodes:
+    - name: cpu-workers
+      instance_type: m5.2xlarge
+      min_nodes: 1
+      max_nodes: 8
+      market_type: ON_DEMAND
+
+# Production broker, replacing the filesystem transport in app.py:
+#
+#   adapter_config=CeleryAdapterConfig(
+#       broker_url="redis://<host>:6379/0",
+#       backend_url="redis://<host>:6379/1",
+#   )
+#
+# Anyscale clouds can provision Memorystore/MemoryDB for this. A real broker also
+# unlocks queue-depth autoscaling via AsyncInferenceAutoscalingPolicy, which needs
+# broker_url and queue_name in its policy kwargs.
